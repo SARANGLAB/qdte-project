@@ -12,18 +12,19 @@ use unicode_width::UnicodeWidthStr;
 use crate::app::App;
 use crate::editor::buffer::Buffer;
 
-const TAB_STOP: usize = 4;
-
 pub struct Renderer {
-    /// First visible line (vertical scroll).
     top_line: usize,
-    /// First visible visual column (horizontal scroll).
     left_col: usize,
+    tab_width: usize,
 }
 
 impl Renderer {
-    pub fn new() -> Self {
-        Self { top_line: 0, left_col: 0 }
+    pub fn new(tab_width: usize) -> Self {
+        Self {
+            top_line: 0,
+            left_col: 0,
+            tab_width: tab_width.max(1),
+        }
     }
 
     pub fn render(&mut self, app: &App, mode_label: &str) -> io::Result<()> {
@@ -43,7 +44,7 @@ impl Renderer {
         let cursor_gcol = cursor.grapheme_col(buffer);
         let cursor_visual_col = {
             let line_text = buffer.line(cursor_line).unwrap_or_default();
-            visual_col(&line_text, cursor_gcol, TAB_STOP)
+            visual_col(&line_text, cursor_gcol, self.tab_width)
         };
 
         self.adjust_scroll(cursor_line, cursor_visual_col, content_height, cols);
@@ -57,7 +58,7 @@ impl Renderer {
             let line_idx = self.top_line + row;
             queue!(stdout, MoveTo(0, row as u16))?;
             if line_idx < buffer.len_lines() {
-                let rendered = render_line(buffer, line_idx, self.left_col, cols);
+                let rendered = render_line(buffer, line_idx, self.left_col, cols, self.tab_width);
                 if !rendered.is_empty() {
                     queue!(stdout, Print(rendered))?;
                 }
@@ -108,7 +109,7 @@ impl Renderer {
 
 impl Default for Renderer {
     fn default() -> Self {
-        Self::new()
+        Self::new(4)
     }
 }
 
@@ -116,14 +117,14 @@ impl Default for Renderer {
 
 /// Visual width of the first `grapheme_count` graphemes of `line_text`,
 /// with tabs expanded to the next multiple of `tab_stop`.
-pub(crate) fn visual_col(line_text: &str, grapheme_count: usize, tab_stop: usize) -> usize {
+pub(crate) fn visual_col(line_text: &str, grapheme_count: usize, tab_width: usize) -> usize {
     let mut w = 0usize;
     for (i, g) in line_text.graphemes(true).enumerate() {
         if i >= grapheme_count {
             break;
         }
         if g == "\t" {
-            w += tab_stop - (w % tab_stop);
+            w += tab_width - (w % tab_width);
         } else {
             w += UnicodeWidthStr::width(g);
         }
@@ -138,6 +139,7 @@ pub(crate) fn render_line(
     line_idx: usize,
     left_col: usize,
     max_width: usize,
+    tab_width: usize,
 ) -> String {
     let text = buffer.line(line_idx).unwrap_or_default();
     let mut out = String::new();
@@ -146,7 +148,7 @@ pub(crate) fn render_line(
 
     for g in text.graphemes(true) {
         let gw = if g == "\t" {
-            TAB_STOP - (visual % TAB_STOP)
+            tab_width - (visual % tab_width)
         } else {
             UnicodeWidthStr::width(g)
         };
@@ -230,6 +232,8 @@ fn format_status(app: &App, mode_label: &str, width: usize) -> String {
 mod tests {
     use super::*;
 
+    const TAB_WIDTH: usize = 4;
+
     fn buf(s: &str) -> Buffer {
         Buffer::from_str(s)
     }
@@ -238,27 +242,33 @@ mod tests {
 
     #[test]
     fn visual_col_empty() {
-        assert_eq!(visual_col("", 0, TAB_STOP), 0);
+        assert_eq!(visual_col("", 0, TAB_WIDTH), 0);
     }
 
     #[test]
     fn visual_col_ascii() {
-        assert_eq!(visual_col("abc", 0, TAB_STOP), 0);
-        assert_eq!(visual_col("abc", 1, TAB_STOP), 1);
-        assert_eq!(visual_col("abc", 3, TAB_STOP), 3);
+        assert_eq!(visual_col("abc", 0, TAB_WIDTH), 0);
+        assert_eq!(visual_col("abc", 1, TAB_WIDTH), 1);
+        assert_eq!(visual_col("abc", 3, TAB_WIDTH), 3);
     }
 
     #[test]
     fn visual_col_tab_expanded() {
         // "a\t" — 'a' at col 0, tab jumps to col 4
-        assert_eq!(visual_col("a\t", 2, TAB_STOP), 4);
+        assert_eq!(visual_col("a\t", 2, TAB_WIDTH), 4);
     }
 
     #[test]
     fn visual_col_wide_char() {
         // Each CJK char is width 2
-        assert_eq!(visual_col("日本語", 1, TAB_STOP), 2);
-        assert_eq!(visual_col("日本語", 2, TAB_STOP), 4);
+        assert_eq!(visual_col("日本語", 1, TAB_WIDTH), 2);
+        assert_eq!(visual_col("日本語", 2, TAB_WIDTH), 4);
+    }
+
+    #[test]
+    fn visual_col_custom_tab_width() {
+        // Same content, tab_width = 8
+        assert_eq!(visual_col("a\t", 2, 8), 8);
     }
 
     // ---- render_line ----
@@ -266,26 +276,26 @@ mod tests {
     #[test]
     fn render_line_simple() {
         let b = buf("hello");
-        assert_eq!(render_line(&b, 0, 0, 80), "hello");
+        assert_eq!(render_line(&b, 0, 0, 80, TAB_WIDTH), "hello");
     }
 
     #[test]
     fn render_line_with_left_offset() {
         let b = buf("abcdef");
-        assert_eq!(render_line(&b, 0, 2, 80), "cdef");
+        assert_eq!(render_line(&b, 0, 2, 80, TAB_WIDTH), "cdef");
     }
 
     #[test]
     fn render_line_truncates_to_max_width() {
         let b = buf("abcdef");
-        assert_eq!(render_line(&b, 0, 0, 3), "abc");
+        assert_eq!(render_line(&b, 0, 0, 3, TAB_WIDTH), "abc");
     }
 
     #[test]
     fn render_line_expands_tab() {
         let b = buf("a\tb");
         // 'a' + tab (3 spaces to reach col 4) + 'b'
-        assert_eq!(render_line(&b, 0, 0, 80), "a   b");
+        assert_eq!(render_line(&b, 0, 0, 80, TAB_WIDTH), "a   b");
     }
 
     #[test]
@@ -293,12 +303,19 @@ mod tests {
         let b = buf("a\tb");
         // Cols: 'a'=0, tab=1..3, 'b'=4
         // left_col=2 skips 'a' + first 2 spaces of tab, keeps last space + 'b'
-        assert_eq!(render_line(&b, 0, 2, 80), "  b");
+        assert_eq!(render_line(&b, 0, 2, 80, TAB_WIDTH), "  b");
     }
 
     #[test]
     fn render_line_out_of_range_is_empty() {
         let b = buf("only");
-        assert_eq!(render_line(&b, 5, 0, 80), "");
+        assert_eq!(render_line(&b, 5, 0, 80, TAB_WIDTH), "");
+    }
+
+    #[test]
+    fn render_line_respects_custom_tab_width() {
+        let b = buf("a\tb");
+        // tab_width = 8: 'a' + 7 spaces + 'b'
+        assert_eq!(render_line(&b, 0, 0, 80, 8), "a       b");
     }
 }

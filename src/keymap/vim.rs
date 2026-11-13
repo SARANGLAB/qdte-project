@@ -137,7 +137,7 @@ impl VimKeymap {
             (Char('z'), M::CONTROL) => Command::Editor(Action::Undo),
             (Char('y'), M::CONTROL) => Command::Editor(Action::Redo),
             (Enter, _) => Command::Editor(Action::InsertNewline),
-            (Tab, _) => Command::Editor(Action::InsertChar('\t')),
+            (Tab, _) => Command::Editor(Action::InsertTab),
             (Backspace, _) => Command::Editor(Action::DeleteBackward),
             (Delete, _) => Command::Editor(Action::DeleteForward),
             (Left, _) => Command::Editor(Action::MoveLeft),

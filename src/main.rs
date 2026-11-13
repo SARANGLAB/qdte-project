@@ -3,6 +3,7 @@ use std::process::ExitCode;
 use qdte::app::App;
 use qdte::cli::args::Invocation;
 use qdte::cli;
+use qdte::config::{Config, KeymapKind};
 use qdte::keymap::dispatcher::Dispatcher;
 use qdte::keymap::Command;
 use qdte::terminal::input::read_key;
@@ -10,22 +11,31 @@ use qdte::terminal::renderer::Renderer;
 use qdte::terminal::TerminalGuard;
 
 fn main() -> ExitCode {
+    let (config, warning) = Config::load();
+    if let Some(w) = warning {
+        eprintln!("qdte: {}", w);
+    }
+
     let args = cli::args::parse();
 
     let mut app = match args.cli.file {
-        Some(path) => match App::from_file(path.clone()) {
+        Some(path) => match App::from_file(path.clone(), config.clone()) {
             Ok(a) => a,
             Err(e) => {
                 eprintln!("error reading {:?}: {}", path, e);
                 return ExitCode::FAILURE;
             }
         },
-        None => App::new_empty(),
+        None => App::new_empty(config.clone()),
     };
 
-    let vim = matches!(args.invocation, Invocation::Vim);
+    let vim = match config.keymap {
+        Some(KeymapKind::Vim) => true,
+        Some(KeymapKind::Normal) => false,
+        None => matches!(args.invocation, Invocation::Vim),
+    };
 
-    if let Err(e) = run(&mut app, vim) {
+    if let Err(e) = run(&mut app, vim, &config) {
         eprintln!("terminal error: {}", e);
         return ExitCode::FAILURE;
     }
@@ -33,10 +43,10 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn run(app: &mut App, vim: bool) -> std::io::Result<()> {
+fn run(app: &mut App, vim: bool, config: &Config) -> std::io::Result<()> {
     let _guard = TerminalGuard::new()?;
     let mut dispatcher = Dispatcher::for_vim_mode(vim);
-    let mut renderer = Renderer::new();
+    let mut renderer = Renderer::new(config.tab_width);
     let mut quit_armed = false;
 
     app.mode = dispatcher.initial_mode();

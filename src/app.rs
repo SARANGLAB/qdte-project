@@ -6,6 +6,7 @@ use thiserror::Error;
 
 use crate::editor::{Action, Editor, EditorError, Mode};
 use crate::io::{self, IoError, LineEnding};
+use crate::config::Config;
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -26,12 +27,14 @@ pub struct App {
     pub had_bom: bool,
     pub message: Option<String>,
     pub mode: Mode,
+    pub config: Config,
     saved_hash: Option<u64>,
 }
 
 impl App {
-    pub fn new_empty() -> Self {
-        let editor = Editor::new();
+    pub fn new_empty(config: Config) -> Self {
+        let mut editor = Editor::new();
+        editor.set_tab_config(config.tab_width, config.expand_tab);
         let saved_hash = Some(hash_str(&editor.buffer().as_string()));
         Self {
             editor,
@@ -40,13 +43,15 @@ impl App {
             had_bom: false,
             message: None,
             mode: Mode::Normal,
+            config,
             saved_hash,
         }
     }
 
-    pub fn from_file(path: PathBuf) -> Result<Self, IoError> {
+    pub fn from_file(path: PathBuf, config: Config) -> Result<Self, IoError> {
         let loaded = io::reader::read(&path)?;
-        let editor = Editor::from_str(&loaded.content);
+        let mut editor = Editor::from_str(&loaded.content);
+        editor.set_tab_config(config.tab_width, config.expand_tab);
         let saved_hash = Some(hash_str(&editor.buffer().as_string()));
         Ok(Self {
             editor,
@@ -55,6 +60,7 @@ impl App {
             had_bom: loaded.had_bom,
             message: None,
             mode: Mode::Normal,
+            config,
             saved_hash,
         })
     }
@@ -73,9 +79,13 @@ impl App {
 
     pub fn save(&mut self) -> Result<(), AppError> {
         let path = self.path.clone().ok_or(AppError::NoPath)?;
-        let content = self.editor.buffer().as_string();
+        let mut content = self.editor.buffer().as_string();
+        if self.config.fixeol && !content.is_empty() && !content.ends_with('\n') {
+            content.push('\n');
+        }
         io::writer::write(&path, &content, self.line_ending, self.had_bom)?;
-        self.saved_hash = Some(hash_str(&content));
+        // Hash of buffer content (unmodified by fixeol).
+        self.saved_hash = Some(hash_str(&self.editor.buffer().as_string()));
         self.message = Some(format!("saved: {}", path.display()));
         Ok(())
     }

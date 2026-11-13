@@ -4,3 +4,4 @@ pub mod editor;
 pub mod io;
 pub mod keymap;
 pub mod terminal;
+pub mod config;

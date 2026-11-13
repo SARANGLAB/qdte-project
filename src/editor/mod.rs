@@ -27,6 +27,8 @@ pub struct Editor {
     buffer: Buffer,
     cursor: Cursor,
     history: History,
+    tab_width: usize,
+    expand_tab: bool,
 }
 
 impl Editor {
@@ -35,6 +37,8 @@ impl Editor {
             buffer: Buffer::new(),
             cursor: Cursor::new(),
             history: History::default(),
+            tab_width: 4,
+            expand_tab: false,
         }
     }
 
@@ -43,6 +47,8 @@ impl Editor {
             buffer: Buffer::from_str(s),
             cursor: Cursor::new(),
             history: History::default(),
+            tab_width: 4,
+            expand_tab: false,
         }
     }
 
@@ -51,6 +57,8 @@ impl Editor {
             buffer,
             cursor: Cursor::new(),
             history: History::default(),
+            tab_width: 4,
+            expand_tab: false,
         }
     }
 
@@ -64,6 +72,19 @@ impl Editor {
 
     pub fn history(&self) -> &History {
         &self.history
+    }
+
+    pub fn set_tab_config(&mut self, tab_width: usize, expand_tab: bool) {
+        self.tab_width = tab_width.max(1);
+        self.expand_tab = expand_tab;
+    }
+
+    pub fn tab_width(&self) -> usize {
+        self.tab_width
+    }
+
+    pub fn expand_tab(&self) -> bool {
+        self.expand_tab
     }
 
     /// Apply an action. Mutates buffer and/or cursor as appropriate.
@@ -114,6 +135,25 @@ impl Editor {
                 self.history.record(Change::insert(
                     idx,
                     "\n",
+                    cursor_before,
+                    cursor_after,
+                    ChangeKind::Structural,
+                ));
+            }
+            Action::InsertTab => {
+                let idx = self.cursor.char_idx();
+                let cursor_before = idx;
+                let text = if self.expand_tab {
+                    " ".repeat(self.tab_width)
+                } else {
+                    "\t".to_string()
+                };
+                self.buffer.insert_str(idx, &text)?;
+                self.cursor = Cursor::at(idx + text.chars().count());
+                let cursor_after = self.cursor.char_idx();
+                self.history.record(Change::insert(
+                    idx,
+                    text,
                     cursor_before,
                     cursor_after,
                     ChangeKind::Structural,

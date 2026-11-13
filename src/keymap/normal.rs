@@ -25,7 +25,7 @@ impl Keymap for NormalKeymap {
             // Text input
             (Char(c), M::NONE) | (Char(c), M::SHIFT) => Command::Editor(Action::InsertChar(c)),
             (Enter, _) => Command::Editor(Action::InsertNewline),
-            (Tab, _) => Command::Editor(Action::InsertChar('\t')),
+            (Tab, _) => Command::Editor(Action::InsertTab),
             (Backspace, _) => Command::Editor(Action::DeleteBackward),
             (Delete, _) => Command::Editor(Action::DeleteForward),
 
@@ -85,9 +85,9 @@ mod tests {
     }
 
     #[test]
-    fn tab_inserts_tab_char() {
+    fn tab_maps_to_insert_tab() {
         match resolve(key(KeyCode::Tab, KeyModifiers::NONE)) {
-            Some(Command::Editor(Action::InsertChar('\t'))) => {}
+            Some(Command::Editor(Action::InsertTab)) => {}
             other => panic!("unexpected: {:?}", other),
         }
     }

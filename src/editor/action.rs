@@ -18,9 +18,12 @@ pub enum Action {
     DeleteBackward,
     DeleteForward,
     DeleteLine,
+
     // undo / redo
     Undo,
     Redo,
+
+    InsertTab,
 }
 
 impl Action {
@@ -29,6 +32,7 @@ impl Action {
             self,
             Action::InsertChar(_)
                 | Action::InsertNewline
+                | Action::InsertTab
                 | Action::DeleteBackward
                 | Action::DeleteForward
                 | Action::DeleteLine
