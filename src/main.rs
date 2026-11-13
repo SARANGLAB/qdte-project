@@ -1,13 +1,13 @@
 use std::process::ExitCode;
 
-use sarang_qdte::app::App;
-use sarang_qdte::cli::args::Invocation;
-use sarang_qdte::cli;
-use sarang_qdte::keymap::dispatcher::Dispatcher;
-use sarang_qdte::keymap::Command;
-use sarang_qdte::terminal::input::read_key;
-use sarang_qdte::terminal::renderer::Renderer;
-use sarang_qdte::terminal::TerminalGuard;
+use qdte::app::App;
+use qdte::cli::args::Invocation;
+use qdte::cli;
+use qdte::keymap::dispatcher::Dispatcher;
+use qdte::keymap::Command;
+use qdte::terminal::input::read_key;
+use qdte::terminal::renderer::Renderer;
+use qdte::terminal::TerminalGuard;
 
 fn main() -> ExitCode {
     let args = cli::args::parse();

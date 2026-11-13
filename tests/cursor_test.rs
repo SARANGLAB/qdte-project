@@ -1,5 +1,5 @@
-use sarang_qdte::editor::buffer::Buffer;
-use sarang_qdte::editor::cursor::Cursor;
+use qdte::editor::buffer::Buffer;
+use qdte::editor::cursor::Cursor;
 
 #[test]
 fn navigate_through_multiline_buffer() {

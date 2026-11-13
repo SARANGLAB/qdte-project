@@ -1,6 +1,6 @@
 use std::fs;
 
-use sarang_qdte::io::{reader, writer, LineEnding};
+use qdte::io::{reader, writer, LineEnding};
 
 #[test]
 fn reads_existing_lf_file() {

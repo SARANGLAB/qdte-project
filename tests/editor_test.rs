@@ -1,4 +1,4 @@
-use sarang_qdte::editor::{Action, Editor};
+use qdte::editor::{Action, Editor};
 
 #[test]
 fn type_a_sentence() {
@@ -32,7 +32,7 @@ fn multiline_edit_flow() {
 
 #[test]
 fn enter_then_type_creates_expected_buffer() {
-    use sarang_qdte::editor::{Action, Editor};
+    use qdte::editor::{Action, Editor};
 
     let mut e = Editor::new();
     for c in ['a', '\t', 'b'] {
@@ -57,7 +57,7 @@ fn enter_then_type_creates_expected_buffer() {
 
 #[test]
 fn enter_at_end_puts_cursor_on_new_last_line() {
-    use sarang_qdte::editor::{Action, Editor};
+    use qdte::editor::{Action, Editor};
     let mut e = Editor::new();
     for c in ['a', '\t', 'b'] {
         e.apply(Action::InsertChar(c)).unwrap();

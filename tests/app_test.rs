@@ -1,5 +1,5 @@
-use sarang_qdte::app::App;
-use sarang_qdte::editor::Action;
+use qdte::app::App;
+use qdte::editor::Action;
 
 #[test]
 fn save_writes_file_and_clears_dirty() {

@@ -1,4 +1,4 @@
-use sarang_qdte::editor::buffer::Buffer;
+use qdte::editor::buffer::Buffer;
 
 #[test]
 fn buffer_is_usable_through_public_api() {
