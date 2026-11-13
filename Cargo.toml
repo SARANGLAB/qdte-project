@@ -1,0 +1,19 @@
+[package]
+name = "sarang-qdte"
+version = "0.1.0"
+edition = "2021"
+authors = ["Sarang Community"]
+description = "Quick & Dirty Text Editor — a terminal-based text editor"
+license = "GPL-3.0-only"
+repository = ""
+readme = "README.md"
+
+[dependencies]
+# sengaja kosong dulu.
+# clap, crossterm, ropey, dll ditambahkan saat step-nya tiba.
+
+[profile.release]
+opt-level = "z"      # kecil
+lto = true
+codegen-units = 1
+strip = true
