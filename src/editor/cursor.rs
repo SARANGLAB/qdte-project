@@ -123,6 +123,30 @@ impl Cursor {
         }
         Some(next_grapheme_boundary(buffer, self.char_idx))
     }
+    pub fn next_grapheme_end_within_line(&self, buffer: &Buffer) -> Option<usize> {
+        let line = buffer.char_to_line(self.char_idx);
+        let line_start = buffer.line_to_char(line);
+        let line_text = buffer.line(line).unwrap_or_default();
+        let line_end = line_start + line_text.chars().count();
+
+        if self.char_idx >= line_end {
+            return None;
+        }
+
+        let next = next_grapheme_boundary(buffer, self.char_idx);
+        Some(next.min(line_end))
+    }
+
+    pub fn previous_grapheme_start_within_line(&self, buffer: &Buffer) -> Option<usize> {
+        let line = buffer.char_to_line(self.char_idx);
+        let line_start = buffer.line_to_char(line);
+
+        if self.char_idx <= line_start {
+            return None;
+        }
+
+        Some(previous_grapheme_boundary(buffer, self.char_idx))
+    }
 }
 
 impl Default for Cursor {

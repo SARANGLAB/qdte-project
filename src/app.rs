@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use crate::editor::{Action, Editor, EditorError};
+use crate::editor::{Action, Editor, EditorError, Mode};
 use crate::io::{self, IoError, LineEnding};
 
 #[derive(Debug, Error)]
@@ -24,6 +24,7 @@ pub struct App {
     pub had_bom: bool,
     pub dirty: bool,
     pub message: Option<String>,
+    pub mode: Mode,
 }
 
 impl App {
@@ -35,6 +36,7 @@ impl App {
             had_bom: false,
             dirty: false,
             message: None,
+            mode: Mode::Normal,
         }
     }
 
@@ -47,6 +49,7 @@ impl App {
             had_bom: loaded.had_bom,
             dirty: false,
             message: None,
+            mode: Mode::Normal,
         })
     }
 

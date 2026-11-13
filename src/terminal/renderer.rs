@@ -26,7 +26,7 @@ impl Renderer {
         Self { top_line: 0, left_col: 0 }
     }
 
-    pub fn render(&mut self, app: &App) -> io::Result<()> {
+    pub fn render(&mut self, app: &App, mode_label: &str) -> io::Result<()> {
         let (cols, rows) = terminal::size()?;
         let cols = cols as usize;
         let rows = rows as usize;
@@ -66,7 +66,7 @@ impl Renderer {
             }
         }
 
-        let status = format_status(app, cols);
+        let status = format_status(app, mode_label, cols);
         queue!(
             stdout,
             MoveTo(0, content_height as u16),
@@ -185,7 +185,7 @@ pub(crate) fn render_line(
     out
 }
 
-fn format_status(app: &App, width: usize) -> String {
+fn format_status(app: &App, mode_label: &str, width: usize) -> String {
     let name = app
         .path
         .as_ref()
@@ -202,7 +202,14 @@ fn format_status(app: &App, width: usize) -> String {
         cursor.grapheme_col(buffer) + 1,
     );
 
-    let mut left = format!("{}{}", name, dirty);
+    let mut left = String::new();
+    if !mode_label.is_empty() {
+        left.push('[');
+        left.push_str(mode_label);
+        left.push_str("] ");
+    }
+    left.push_str(&name);
+    left.push_str(dirty);
     if let Some(msg) = &app.message {
         left.push_str("  ");
         left.push_str(msg);

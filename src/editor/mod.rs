@@ -2,6 +2,7 @@ pub mod action;
 pub mod buffer;
 pub mod cursor;
 pub mod mode;
+pub use mode::Mode;
 
 use thiserror::Error;
 
@@ -91,6 +92,36 @@ impl Editor {
                     self.buffer.remove(cursor_idx..next_end)?;
                     // cursor stays at same char index; content after it shrank
                 }
+            }
+            Action::MoveLeftLineClamped => {
+                if let Some(prev) = self.cursor.previous_grapheme_start_within_line(&self.buffer) {
+                    self.cursor = Cursor::at(prev);
+                }
+            }
+            Action::MoveRightLineClamped => {
+                if let Some(next) = self.cursor.next_grapheme_end_within_line(&self.buffer) {
+                    self.cursor = Cursor::at(next);
+                }
+            }
+            Action::DeleteLine => {
+                let cursor_line = self.cursor.line(&self.buffer);
+                let line_start = self.buffer.line_to_char(cursor_line);
+                let line_text = self.buffer.line(cursor_line).unwrap_or_default();
+                let line_char_count = line_text.chars().count();
+                let line_end = line_start + line_char_count;
+                let buffer_len = self.buffer.len_chars();
+
+                let (start, end) = if line_end < buffer_len {
+                    (line_start, line_end + 1)
+                } else if line_start > 0 {
+                    (line_start - 1, buffer_len)
+                } else {
+                    (line_start, buffer_len)
+                };
+
+                self.buffer.remove(start..end)?;
+                self.cursor = Cursor::at(start);
+                self.cursor.clamp(&self.buffer);
             }
         }
         Ok(())

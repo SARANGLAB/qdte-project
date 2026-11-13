@@ -4,10 +4,12 @@ use crate::editor::Action;
 
 use super::{Command, Keymap};
 
+use crate::editor::Mode;
+
 pub struct NormalKeymap;
 
 impl Keymap for NormalKeymap {
-    fn resolve(&self, key: KeyEvent) -> Option<Command> {
+    fn resolve(&mut self, _mode: Mode, key: KeyEvent) -> Option<Command> {
         use KeyCode::*;
         use KeyModifiers as M;
 
@@ -41,15 +43,20 @@ impl Keymap for NormalKeymap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editor::Mode;
 
     fn key(code: KeyCode, mods: KeyModifiers) -> KeyEvent {
         KeyEvent::new(code, mods)
     }
 
+    fn resolve(key_event: KeyEvent) -> Option<Command> {
+        NormalKeymap.resolve(Mode::Normal, key_event)
+    }
+
     #[test]
     fn ctrl_s_is_save() {
         assert!(matches!(
-            NormalKeymap.resolve(key(KeyCode::Char('s'), KeyModifiers::CONTROL)),
+            resolve(key(KeyCode::Char('s'), KeyModifiers::CONTROL)),
             Some(Command::Save)
         ));
     }
@@ -57,14 +64,14 @@ mod tests {
     #[test]
     fn ctrl_x_is_quit() {
         assert!(matches!(
-            NormalKeymap.resolve(key(KeyCode::Char('x'), KeyModifiers::CONTROL)),
+            resolve(key(KeyCode::Char('x'), KeyModifiers::CONTROL)),
             Some(Command::Quit)
         ));
     }
 
     #[test]
     fn plain_letter_is_insert() {
-        match NormalKeymap.resolve(key(KeyCode::Char('a'), KeyModifiers::NONE)) {
+        match resolve(key(KeyCode::Char('a'), KeyModifiers::NONE)) {
             Some(Command::Editor(Action::InsertChar('a'))) => {}
             other => panic!("unexpected: {:?}", other),
         }
@@ -72,13 +79,12 @@ mod tests {
 
     #[test]
     fn unmapped_returns_none() {
-        assert!(NormalKeymap
-            .resolve(key(KeyCode::F(1), KeyModifiers::NONE))
-            .is_none());
+        assert!(resolve(key(KeyCode::F(1), KeyModifiers::NONE)).is_none());
     }
+
     #[test]
     fn tab_inserts_tab_char() {
-        match NormalKeymap.resolve(key(KeyCode::Tab, KeyModifiers::NONE)) {
+        match resolve(key(KeyCode::Tab, KeyModifiers::NONE)) {
             Some(Command::Editor(Action::InsertChar('\t'))) => {}
             other => panic!("unexpected: {:?}", other),
         }

@@ -9,16 +9,18 @@ pub enum Action {
     MoveLineEnd,
     MoveBufferStart,
     MoveBufferEnd,
+    MoveLeftLineClamped,
+    MoveRightLineClamped,
 
     // text editing
     InsertChar(char),
     InsertNewline,
     DeleteBackward,
     DeleteForward,
+    DeleteLine,
 }
 
 impl Action {
-    /// True if applying this action can change the buffer content.
     pub fn is_mutation(&self) -> bool {
         matches!(
             self,
@@ -26,6 +28,7 @@ impl Action {
                 | Action::InsertNewline
                 | Action::DeleteBackward
                 | Action::DeleteForward
+                | Action::DeleteLine
         )
     }
 }
