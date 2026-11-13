@@ -29,3 +29,43 @@ fn multiline_edit_flow() {
     assert_eq!(e.cursor().line(e.buffer()), 1);
     assert_eq!(e.cursor().grapheme_col(e.buffer()), 1);
 }
+
+#[test]
+fn enter_then_type_creates_expected_buffer() {
+    use sarang_qdte::editor::{Action, Editor};
+
+    let mut e = Editor::new();
+    for c in ['a', '\t', 'b'] {
+        e.apply(Action::InsertChar(c)).unwrap();
+    }
+    assert_eq!(e.buffer().as_string(), "a\tb");
+    assert_eq!(e.cursor().char_idx(), 3);
+
+    e.apply(Action::InsertNewline).unwrap();
+    assert_eq!(e.buffer().as_string(), "a\tb\n");
+    assert_eq!(e.cursor().line(e.buffer()), 1);
+    assert_eq!(e.cursor().char_idx(), 4);
+
+    e.apply(Action::InsertChar('a')).unwrap();
+    e.apply(Action::InsertChar('b')).unwrap();
+    assert_eq!(e.buffer().as_string(), "a\tb\nab");
+
+    e.apply(Action::MoveUp).unwrap();
+    assert_eq!(e.cursor().line(e.buffer()), 0);
+    assert_eq!(e.cursor().grapheme_col(e.buffer()), 2);
+}
+
+#[test]
+fn enter_at_end_puts_cursor_on_new_last_line() {
+    use sarang_qdte::editor::{Action, Editor};
+    let mut e = Editor::new();
+    for c in ['a', '\t', 'b'] {
+        e.apply(Action::InsertChar(c)).unwrap();
+    }
+    assert_eq!(e.cursor().line(e.buffer()), 0);
+
+    e.apply(Action::InsertNewline).unwrap();
+    assert_eq!(e.buffer().as_string(), "a\tb\n");
+    assert_eq!(e.cursor().line(e.buffer()), 1);
+    assert_eq!(e.cursor().grapheme_col(e.buffer()), 0);
+}

@@ -75,8 +75,11 @@ impl Buffer {
         if len == 0 {
             return 0;
         }
-        let clamped = char_idx.min(len - 1);
-        self.rope.char_to_line(clamped)
+        if char_idx >= len {
+            // Past-end positions live on the last (possibly empty) line.
+            return self.rope.len_lines() - 1;
+        }
+        self.rope.char_to_line(char_idx)
     }
 
     /// Char index of the start of `line_idx`, clamped to buffer length.

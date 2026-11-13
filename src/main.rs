@@ -6,6 +6,7 @@ use sarang_qdte::keymap::dispatcher::Dispatcher;
 use sarang_qdte::keymap::normal::NormalKeymap;
 use sarang_qdte::keymap::Command;
 use sarang_qdte::terminal::input::read_key;
+use sarang_qdte::terminal::renderer::Renderer;
 use sarang_qdte::terminal::TerminalGuard;
 
 fn main() -> ExitCode {
@@ -22,15 +23,6 @@ fn main() -> ExitCode {
         None => App::new_empty(),
     };
 
-    let label = app
-        .path
-        .as_ref()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "<no file>".to_string());
-    println!("QDTE — file: {}", label);
-    println!("Ctrl+S save · Ctrl+X quit · arrows/backspace/enter as expected");
-    println!();
-
     if let Err(e) = run(&mut app) {
         eprintln!("terminal error: {}", e);
         return ExitCode::FAILURE;
@@ -42,9 +34,12 @@ fn main() -> ExitCode {
 fn run(app: &mut App) -> std::io::Result<()> {
     let _guard = TerminalGuard::new()?;
     let dispatcher = Dispatcher::new(NormalKeymap);
+    let mut renderer = Renderer::new();
     let mut quit_armed = false;
 
     loop {
+        renderer.render(app)?;
+
         let key = read_key()?;
         let Some(cmd) = dispatcher.resolve(key) else {
             continue;
@@ -52,23 +47,23 @@ fn run(app: &mut App) -> std::io::Result<()> {
 
         match cmd {
             Command::Editor(action) => {
-                let repr = format!("{:?}", action);
-                match app.apply_editor(action) {
-                    Ok(()) => log_state(app, &repr),
-                    Err(e) => println!("[editor error: {}]", e),
+                app.message = None;
+                if let Err(e) = app.apply_editor(action) {
+                    app.message = Some(format!("error: {}", e));
                 }
                 quit_armed = false;
             }
             Command::Save => {
                 match app.save() {
-                    Ok(()) => println!("[saved {}]", app.path.as_ref().unwrap().display()),
-                    Err(e) => println!("[save error: {}]", e),
+                    Ok(()) => {} // save() sets app.message
+                    Err(e) => app.message = Some(format!("save failed: {}", e)),
                 }
                 quit_armed = false;
             }
             Command::Quit => {
                 if app.dirty && !quit_armed {
-                    println!("[unsaved changes — press Ctrl+X again to quit without saving]");
+                    app.message =
+                        Some("unsaved changes — Ctrl+X again to quit".into());
                     quit_armed = true;
                 } else {
                     break;
@@ -78,20 +73,4 @@ fn run(app: &mut App) -> std::io::Result<()> {
     }
 
     Ok(())
-}
-
-fn log_state(app: &App, action_repr: &str) {
-    let text = app.editor.buffer().as_string();
-    let preview = if text.chars().count() > 60 {
-        let s: String = text.chars().take(60).collect();
-        format!("{}…", s)
-    } else {
-        text
-    };
-    println!(
-        "{}  →  cursor {}  buf {:?}",
-        action_repr,
-        app.editor.cursor().char_idx(),
-        preview
-    );
 }

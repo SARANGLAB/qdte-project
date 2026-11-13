@@ -18,3 +18,18 @@ fn buffer_handles_multiline_content_from_io() {
     assert_eq!(b.line(2).unwrap(), "line three");
     assert_eq!(b.line(3).unwrap(), "");
 }
+
+#[test]
+fn char_to_line_at_len_with_trailing_newline() {
+    let b = Buffer::from_str("a\tb\n");
+    // char_idx 4 is past the trailing '\n' — first position of the
+    // empty last line. Must return 1, not 0.
+    assert_eq!(b.char_to_line(4), 1);
+}
+
+#[test]
+fn char_to_line_at_len_no_trailing_newline() {
+    let b = Buffer::from_str("abc");
+    // No trailing newline, so past-end stays on line 0.
+    assert_eq!(b.char_to_line(3), 0);
+}
