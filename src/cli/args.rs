@@ -7,9 +7,13 @@ use std::path::PathBuf;
 /// If FILE is provided, QDTE opens it for editing. If the file does not exist,
 /// an empty buffer is created; the file is only written to disk on save.
 #[derive(Parser, Debug)]
-#[command(name = "qdte", version, about = "Quick & Dirty Text Editor")]
+#[command(
+    name = "qdte",
+    bin_name = "qdte",
+    version,
+    about = "Quick & Dirty Text Editor"
+)]
 pub struct Cli {
-    /// File to open for editing.
     pub file: Option<PathBuf>,
 }
 

@@ -1,15 +1,28 @@
-mod app;
-mod cli;
-mod editor;
-mod io;
-mod keymap;
-mod terminal;
+use sarang_qdte::cli;
+use sarang_qdte::io;
 
 fn main() {
     let args = cli::args::parse();
 
-    // Placeholder sementara — dihapus setelah Application layer terhubung.
     println!("sarang-qdte v{}", env!("CARGO_PKG_VERSION"));
     println!("invocation = {:?}", args.invocation);
-    println!("file       = {:?}", args.cli.file);
+
+    match args.cli.file {
+        Some(path) => match io::reader::read(&path) {
+            Ok(loaded) => {
+                println!("path        = {:?}", loaded.path);
+                println!("existed     = {}", loaded.existed);
+                println!("line ending = {:?}", loaded.line_ending);
+                println!("bom         = {}", loaded.had_bom);
+                println!("bytes       = {}", loaded.content.len());
+            }
+            Err(e) => {
+                eprintln!("error reading {:?}: {}", path, e);
+                std::process::exit(1);
+            }
+        },
+        None => {
+            println!("file        = None (empty buffer)");
+        }
+    }
 }

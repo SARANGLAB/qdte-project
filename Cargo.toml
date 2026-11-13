@@ -10,9 +10,13 @@ readme = "README.md"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+thiserror = "1"
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.release]
-opt-level = "z"      # kecil
+opt-level = "z"
 lto = true
 codegen-units = 1
 strip = "symbols"
