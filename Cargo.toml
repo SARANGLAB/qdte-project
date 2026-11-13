@@ -9,11 +9,10 @@ repository = ""
 readme = "README.md"
 
 [dependencies]
-# sengaja kosong dulu.
-# clap, crossterm, ropey, dll ditambahkan saat step-nya tiba.
+clap = { version = "4", features = ["derive"] }
 
 [profile.release]
 opt-level = "z"      # kecil
 lto = true
 codegen-units = 1
-strip = true
+strip = "symbols"
