@@ -2,7 +2,7 @@
 
 **Quick & Dirty Text Editor** — a terminal-based text editor built with Rust.
 
-A [Sarang Community]([https://github.com/sarang-community](https://github.com/SARANGLAB/qdte-project)) project.
+A [Sarang Community](https://github.com/SARANGLAB/) project.
 
 > QDTE takes its name from QDOS (Quick and Dirty Operating System). The spirit
 > is the same: fast, minimal, native. Not that the implementation should be
