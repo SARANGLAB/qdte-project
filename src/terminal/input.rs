@@ -18,13 +18,12 @@ pub enum InputOutcome {
 
 /// Blocks until a key press or repeat event arrives. Ignores other events
 /// (mouse, resize, focus, paste) for now.
-pub fn read_key() -> io::Result<Option<KeyEvent>> {
+pub fn read_key() -> io::Result<KeyEvent> {
     loop {
-        match event::read()? {
-            Event::Key(k) if k.kind == KeyEventKind::Press || k.kind == KeyEventKind::Repeat => {
-                return Ok(Some(k));
+        if let Event::Key(k) = event::read()? {
+            if k.kind == KeyEventKind::Press || k.kind == KeyEventKind::Repeat {
+                return Ok(k);
             }
-            _ => continue,
         }
     }
 }
