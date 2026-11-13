@@ -12,6 +12,7 @@ fn reads_existing_lf_file() {
     assert!(loaded.existed);
     assert_eq!(loaded.content, "hello\nworld\n");
     assert_eq!(loaded.line_ending, LineEnding::Lf);
+    assert!(!loaded.had_bom);
 }
 
 #[test]
@@ -34,6 +35,7 @@ fn read_nonexistent_returns_empty_buffer() {
     let loaded = reader::read(&path).unwrap();
     assert!(!loaded.existed);
     assert_eq!(loaded.content, "");
+    assert!(!loaded.had_bom);
 }
 
 #[test]
@@ -41,7 +43,7 @@ fn write_creates_file_with_lf() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("new.txt");
 
-    writer::write(&path, "hello\nworld\n", LineEnding::Lf).unwrap();
+    writer::write(&path, "hello\nworld\n", LineEnding::Lf, false).unwrap();
     assert_eq!(fs::read_to_string(&path).unwrap(), "hello\nworld\n");
 }
 
@@ -50,7 +52,7 @@ fn write_converts_lf_to_crlf() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("new.txt");
 
-    writer::write(&path, "hello\nworld\n", LineEnding::Crlf).unwrap();
+    writer::write(&path, "hello\nworld\n", LineEnding::Crlf, false).unwrap();
     assert_eq!(fs::read_to_string(&path).unwrap(), "hello\r\nworld\r\n");
 }
 
@@ -61,7 +63,7 @@ fn round_trip_preserves_crlf() {
     fs::write(&path, "line1\r\nline2\r\n").unwrap();
 
     let loaded = reader::read(&path).unwrap();
-    writer::write(&loaded.path, &loaded.content, loaded.line_ending).unwrap();
+    writer::write(&loaded.path, &loaded.content, loaded.line_ending, loaded.had_bom).unwrap();
 
     assert_eq!(fs::read_to_string(&path).unwrap(), "line1\r\nline2\r\n");
 }

@@ -1,4 +1,5 @@
 use sarang_qdte::cli;
+use sarang_qdte::editor::buffer::Buffer;
 use sarang_qdte::io;
 
 fn main() {
@@ -10,11 +11,14 @@ fn main() {
     match args.cli.file {
         Some(path) => match io::reader::read(&path) {
             Ok(loaded) => {
+                let buffer = Buffer::from_str(&loaded.content);
                 println!("path        = {:?}", loaded.path);
                 println!("existed     = {}", loaded.existed);
                 println!("line ending = {:?}", loaded.line_ending);
                 println!("bom         = {}", loaded.had_bom);
-                println!("bytes       = {}", loaded.content.len());
+                println!("lines       = {}", buffer.len_lines());
+                println!("chars       = {}", buffer.len_chars());
+                println!("bytes       = {}", buffer.len_bytes());
             }
             Err(e) => {
                 eprintln!("error reading {:?}: {}", path, e);
