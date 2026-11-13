@@ -12,6 +12,7 @@ readme = "README.md"
 clap = { version = "4", features = ["derive"] }
 thiserror = "1"
 ropey = "1"
+unicode-segmentation = "1"
 
 [dev-dependencies]
 tempfile = "3"
