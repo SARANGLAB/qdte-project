@@ -1,6 +1,7 @@
 use sarang_qdte::cli;
 use sarang_qdte::editor::buffer::Buffer;
 use sarang_qdte::editor::cursor::Cursor;
+use sarang_qdte::editor::{Action, Editor};
 use sarang_qdte::io;
 
 fn main() {
@@ -22,19 +23,18 @@ fn main() {
                 println!("bom         = {}", loaded.had_bom);
                 println!("lines       = {}", buffer.len_lines());
                 println!("chars       = {}", buffer.len_chars());
-                println!("cursor      = char {} (line {}, col {})",
+                println!(
+                    "cursor      = char {} (line {}, col {})",
                     cursor.char_idx(),
                     cursor.line(&buffer),
                     cursor.grapheme_col(&buffer),
                 );
 
-                // Demo navigation
-                cursor.move_buffer_end(&buffer);
-                println!("after end   = char {} (line {}, col {})",
-                    cursor.char_idx(),
-                    cursor.line(&buffer),
-                    cursor.grapheme_col(&buffer),
-                );
+                // Editor demo: apply a small script of actions.
+                let mut ed = Editor::from_str("hello");
+                ed.apply(Action::MoveBufferEnd).ok();
+                ed.apply(Action::InsertChar('!')).ok();
+                println!("editor demo = {:?}", ed.buffer().as_string());
             }
             Err(e) => {
                 eprintln!("error reading {:?}: {}", path, e);
@@ -42,7 +42,12 @@ fn main() {
             }
         },
         None => {
+            let mut ed = Editor::new();
+            for c in "Quick & Dirty".chars() {
+                ed.apply(Action::InsertChar(c)).ok();
+            }
             println!("file        = None (empty buffer)");
+            println!("editor demo = {:?}", ed.buffer().as_string());
         }
     }
 }

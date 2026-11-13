@@ -107,6 +107,22 @@ impl Cursor {
     pub fn move_buffer_end(&mut self, buffer: &Buffer) {
         self.char_idx = buffer.len_chars();
     }
+    pub fn previous_grapheme_start(&self, buffer: &Buffer) -> Option<usize> {
+        if self.char_idx == 0 {
+            return None;
+        }
+        Some(previous_grapheme_boundary(buffer, self.char_idx))
+    }
+
+    /// Char index one past the grapheme immediately after the cursor.
+    /// `None` if the cursor is at the end of the buffer.
+    pub fn next_grapheme_end(&self, buffer: &Buffer) -> Option<usize> {
+        let len = buffer.len_chars();
+        if self.char_idx >= len {
+            return None;
+        }
+        Some(next_grapheme_boundary(buffer, self.char_idx))
+    }
 }
 
 impl Default for Cursor {
@@ -118,10 +134,19 @@ impl Default for Cursor {
 // ---- helpers ---------------------------------------------------------------
 
 fn previous_grapheme_boundary(buffer: &Buffer, char_idx: usize) -> usize {
-    // Walk back until grapheme boundary. Practical approach: slice the line
-    // and find the boundary using unicode-segmentation.
+    if char_idx == 0 {
+        return 0;
+    }
+
     let line = buffer.char_to_line(char_idx);
     let line_start = buffer.line_to_char(line);
+
+    // Cursor is at the start of line > 0. The grapheme immediately
+    // before the cursor is the '\n' that ends the previous line.
+    if char_idx == line_start {
+        return line_start - 1;
+    }
+
     let prefix = buffer
         .slice_to_string(line_start..char_idx)
         .unwrap_or_default();
@@ -133,12 +158,9 @@ fn previous_grapheme_boundary(buffer: &Buffer, char_idx: usize) -> usize {
         if char_pos < prefix.chars().count() {
             boundary = char_pos;
         } else {
-            // char_pos == prefix len → this is the current position;
-            // the previous boundary is what we want.
             return line_start + boundary;
         }
     }
-    // If prefix is empty or loop didn't return, go to line_start.
     line_start
 }
 
@@ -337,5 +359,21 @@ mod tests {
         c.clamp(&b2);
         assert_eq!(c.char_idx(), 3);
         let _ = b1;
+    }
+    #[test]
+    fn move_left_crosses_line_boundary() {
+        let b = buf("abc\ndef");
+        let mut c = Cursor::at(4); // start of line 1
+        c.move_left(&b);
+        assert_eq!(c.char_idx(), 3); // on the '\n'
+        c.move_left(&b);
+        assert_eq!(c.char_idx(), 2);
+    }
+
+    #[test]
+    fn previous_grapheme_start_at_line_start() {
+        let b = buf("abc\ndef");
+        let c = Cursor::at(4);
+        assert_eq!(c.previous_grapheme_start(&b), Some(3));
     }
 }
