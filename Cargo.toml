@@ -10,6 +10,7 @@ readme = "README.md"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+crossterm = "0.28"
 thiserror = "1"
 ropey = "1"
 unicode-segmentation = "1"
