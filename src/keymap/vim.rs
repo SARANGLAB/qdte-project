@@ -52,6 +52,7 @@ impl VimKeymap {
             (Char('x'), M::CONTROL) | (Char('q'), M::CONTROL) | (Char('c'), M::CONTROL) => {
                 return Some(Command::Quit);
             }
+            (Char('r'), M::CONTROL) => return Some(Command::Editor(Action::Redo)),
             (Esc, _) => {
                 self.pending = Pending::None;
                 return None;
@@ -77,6 +78,7 @@ impl VimKeymap {
         }
 
         Some(match (key.code, key.modifiers) {
+            (Char('u'), M::NONE) => Command::Editor(Action::Undo),
             (Char('h'), M::NONE) => Command::Editor(Action::MoveLeftLineClamped),
             (Char('j'), M::NONE) => Command::Editor(Action::MoveDown),
             (Char('k'), M::NONE) => Command::Editor(Action::MoveUp),
@@ -132,6 +134,8 @@ impl VimKeymap {
                 Command::Quit
             }
             (Char(c), M::NONE) | (Char(c), M::SHIFT) => Command::Editor(Action::InsertChar(c)),
+            (Char('z'), M::CONTROL) => Command::Editor(Action::Undo),
+            (Char('y'), M::CONTROL) => Command::Editor(Action::Redo),
             (Enter, _) => Command::Editor(Action::InsertNewline),
             (Tab, _) => Command::Editor(Action::InsertChar('\t')),
             (Backspace, _) => Command::Editor(Action::DeleteBackward),

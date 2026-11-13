@@ -18,6 +18,9 @@ pub enum Action {
     DeleteBackward,
     DeleteForward,
     DeleteLine,
+    // undo / redo
+    Undo,
+    Redo,
 }
 
 impl Action {
@@ -29,6 +32,8 @@ impl Action {
                 | Action::DeleteBackward
                 | Action::DeleteForward
                 | Action::DeleteLine
+                | Action::Undo
+                | Action::Redo
         )
     }
 }

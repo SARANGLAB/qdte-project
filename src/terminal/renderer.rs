@@ -191,7 +191,7 @@ fn format_status(app: &App, mode_label: &str, width: usize) -> String {
         .as_ref()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "<no file>".to_string());
-    let dirty = if app.dirty { " [+]" } else { "" };
+    let dirty = if app.is_dirty() { " [+]" } else { "" };
 
     let cursor = app.editor.cursor();
     let buffer = app.editor.buffer();

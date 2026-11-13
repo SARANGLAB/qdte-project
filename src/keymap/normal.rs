@@ -16,6 +16,8 @@ impl Keymap for NormalKeymap {
         Some(match (key.code, key.modifiers) {
             // App commands
             (Char('s'), M::CONTROL) => Command::Save,
+            (Char('z'), M::CONTROL) => Command::Editor(Action::Undo),
+            (Char('y'), M::CONTROL) => Command::Editor(Action::Redo),
             (Char('x'), M::CONTROL) => Command::Quit,
             (Char('q'), M::CONTROL) => Command::Quit,
             (Char('c'), M::CONTROL) => Command::Quit,

@@ -95,7 +95,7 @@ fn dispatch_command(app: &mut App, cmd: Command, quit_armed: &mut bool) -> bool 
             false
         }
         Command::Quit => {
-            if app.dirty && !*quit_armed {
+            if app.is_dirty() && !*quit_armed {
                 app.message = Some("unsaved changes — Ctrl+X again to quit".into());
                 *quit_armed = true;
                 false
