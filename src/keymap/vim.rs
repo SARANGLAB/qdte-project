@@ -68,8 +68,11 @@ impl VimKeymap {
             (Char('r'), M::CONTROL) => return Some(Command::Editor(Action::Redo)),
             (Esc, _) => {
                 self.pending = Pending::None;
-                return None;
+                return Some(Command::ClearSearch); 
             }
+            (Char('/'), M::NONE) => return Some(Command::Search),
+            (Char('n'), M::NONE) => return Some(Command::SearchNext),
+            (Char('N'), M::SHIFT) => return Some(Command::SearchPrev),
             _ => {}
         }
 

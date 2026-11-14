@@ -21,6 +21,10 @@ pub enum Command {
     YankVisualSelection,
     EnterCommandPrompt,
     SwapAnchor,
+    Search,
+    SearchNext,
+    SearchPrev,
+    ClearSearch,
 }
 
 pub trait Keymap {

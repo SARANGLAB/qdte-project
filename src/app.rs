@@ -25,6 +25,7 @@ pub enum PromptKind {
     Open,
     SaveAs,
     Command,
+    Search,
 }
 
 impl PromptKind {
@@ -33,6 +34,7 @@ impl PromptKind {
             PromptKind::Open => "Open",
             PromptKind::SaveAs => "Save As",
             PromptKind::Command => "Cmd",
+            PromptKind::Search => "Search",
         }
     }
 }
@@ -41,11 +43,21 @@ impl PromptKind {
 pub struct Prompt {
     pub kind: PromptKind,
     pub input: String,
-    /// Cursor position in `input`, measured in chars.
     pub cursor: usize,
-    /// Transient note: either an error from the last confirm, or a warning
-    /// shown when opening. Cleared on next input.
     pub note: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchMatch {
+    pub start: usize,
+    pub end: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchState {
+    pub query: String,
+    pub matches: Vec<SearchMatch>,
+    pub current_idx: usize,
 }
 
 impl Prompt {
@@ -131,6 +143,8 @@ pub struct App {
     pub prompt: Option<Prompt>,
     pub selection_anchor: Option<usize>,
     pub should_quit: bool,
+    pub search: Option<SearchState>,
+    pub cursor_before_search: Option<usize>,
     saved_hash: Option<u64>,
 }
 
@@ -150,6 +164,8 @@ impl App {
             prompt: None,
             selection_anchor: None,
             should_quit: false,
+            search: None,
+            cursor_before_search: None,
             saved_hash,
         }
     }
@@ -170,6 +186,8 @@ impl App {
             prompt: None,
             selection_anchor: None,
             should_quit: false,
+            search: None,
+            cursor_before_search: None,
             saved_hash,
         })
     }
@@ -193,7 +211,6 @@ impl App {
             content.push('\n');
         }
         io::writer::write(&path, &content, self.line_ending, self.had_bom)?;
-        // Hash of buffer content (unmodified by fixeol).
         self.saved_hash = Some(hash_str(&self.editor.buffer().as_string()));
         self.message = Some(format!("saved: {}", path.display()));
         Ok(())
@@ -207,17 +224,34 @@ impl App {
                 .as_ref()
                 .map(|p| p.display().to_string())
                 .unwrap_or_default(),
-            PromptKind::Open | PromptKind::Command => String::new(),
+            PromptKind::Open | PromptKind::Command | PromptKind::Search => String::new(),
         };
         let mut prompt = Prompt::new(kind, initial);
+        
         if kind == PromptKind::Open && self.is_dirty() {
             prompt.note = Some("unsaved changes will be lost".to_string());
         }
+        
+        // Simpan posisi kursor sebelum mulai mencari
+        if kind == PromptKind::Search {
+            self.cursor_before_search = Some(self.editor.cursor().char_idx());
+        }
+        
         self.prompt = Some(prompt);
     }
 
     pub fn cancel_prompt(&mut self) {
+        if let Some(prompt) = &self.prompt {
+            if prompt.kind == PromptKind::Search {
+                // Kembalikan kursor ke posisi semula
+                if let Some(c) = self.cursor_before_search {
+                    self.editor.set_cursor(c);
+                }
+                self.search = None;
+            }
+        }
         self.prompt = None;
+        self.cursor_before_search = None;
     }
 
     pub fn visual_range(&self) -> Option<(usize, usize, bool)> {
@@ -270,8 +304,7 @@ impl App {
                 let existed = path.exists();
                 if !existed && self.is_dirty() {
                     let mut prompt = prompt;
-                    prompt.note =
-                        Some("file does not exist; save current buffer first".to_string());
+                    prompt.note = Some("file does not exist; save current buffer first".to_string());
                     self.prompt = Some(prompt);
                     return;
                 }
@@ -319,10 +352,116 @@ impl App {
             PromptKind::Command => {
                 self.execute_command(&path_str);
             }
+            PromptKind::Search => {
+                self.cursor_before_search = None; // Pencarian dikonfirmasi
+                self.execute_search(&path_str);
+                if self.search.is_none() {
+                    self.message = Some(format!("pattern not found: {}", path_str));
+                }
+            }
+        }
+    }
+
+    pub fn update_live_search(&mut self) {
+        let query = if let Some(prompt) = &self.prompt {
+            if prompt.kind == PromptKind::Search {
+                Some(prompt.input.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(q) = query {
+            self.execute_search(&q);
+        }
+    }
+
+    pub fn execute_search(&mut self, query: &str) {
+        if query.is_empty() {
+            self.search = None;
+            return;
+        }
+
+        let buffer = self.editor.buffer();
+        let content = buffer.as_string();
+        let chars: Vec<char> = content.chars().collect();
+        let q_chars: Vec<char> = query.chars().collect();
+        let q_len = q_chars.len();
+
+        let mut matches = Vec::new();
+
+        if q_len > 0 && q_len <= chars.len() {
+            for i in 0..=chars.len() - q_len {
+                let mut is_match = true;
+                for j in 0..q_len {
+                    if !chars[i + j].to_lowercase().eq(q_chars[j].to_lowercase()) {
+                        is_match = false;
+                        break;
+                    }
+                }
+                if is_match {
+                    matches.push(SearchMatch { start: i, end: i + q_len });
+                }
+            }
+        }
+
+        if matches.is_empty() {
+            self.search = None;
+            return;
+        }
+
+        let cursor = if let Some(c) = self.cursor_before_search {
+            c
+        } else {
+            self.editor.cursor().char_idx()
+        };
+
+        let mut current_idx = 0;
+        for (i, m) in matches.iter().enumerate() {
+            if m.start >= cursor {
+                current_idx = i;
+                break;
+            }
+        }
+
+        self.search = Some(SearchState {
+            query: query.to_string(),
+            matches,
+            current_idx,
+        });
+
+        self.jump_to_match();
+    }
+
+    pub fn search_next(&mut self) {
+        if let Some(search) = self.search.as_mut() {
+            search.current_idx = (search.current_idx + 1) % search.matches.len();
+            self.jump_to_match();
+        }
+    }
+
+    pub fn search_prev(&mut self) {
+        if let Some(search) = self.search.as_mut() {
+            if search.current_idx == 0 {
+                search.current_idx = search.matches.len() - 1;
+            } else {
+                search.current_idx -= 1;
+            }
+            self.jump_to_match();
+        }
+    }
+
+    fn jump_to_match(&mut self) {
+        if let Some(search) = &self.search {
+            let start = search.matches[search.current_idx].start;
+            self.editor.set_cursor(start);
         }
     }
 
     fn execute_command(&mut self, cmd: &str) {
+        // ... (kode execute_command tetap sama seperti sebelumnya)
         let mut parts = cmd.split_whitespace();
         let name = parts.next().unwrap_or("");
         let arg = parts.next();
@@ -441,5 +580,44 @@ mod tests {
         let mut app = App::new_empty(Config::default());
         app.execute_command(&format!("e {}", src.display()));
         assert_eq!(app.editor.buffer().as_string(), "loaded");
+    }
+
+    #[test]
+    fn search_finds_matches_and_jumps() {
+        let mut app = App::new_empty(Config::default());
+        app.editor = Editor::from_str("hello world\nhello again");
+        
+        app.execute_search("hello");
+        let search = app.search.as_ref().unwrap();
+        assert_eq!(search.matches.len(), 2);
+        assert_eq!(search.current_idx, 0);
+        assert_eq!(app.editor.cursor().char_idx(), 0);
+
+        app.search_next();
+        let search = app.search.as_ref().unwrap();
+        assert_eq!(search.current_idx, 1);
+        assert_eq!(app.editor.cursor().char_idx(), 12);
+
+        app.search_next();
+        let search = app.search.as_ref().unwrap();
+        assert_eq!(search.current_idx, 0);
+        assert_eq!(app.editor.cursor().char_idx(), 0);
+
+        app.search_prev();
+        let search = app.search.as_ref().unwrap();
+        assert_eq!(search.current_idx, 1);
+        assert_eq!(app.editor.cursor().char_idx(), 12);
+    }
+
+    #[test]
+    fn search_is_case_insensitive() {
+        let mut app = App::new_empty(Config::default());
+        app.editor = Editor::from_str("Hello World");
+        
+        app.execute_search("hello");
+        let search = app.search.as_ref().unwrap();
+        assert_eq!(search.matches.len(), 1);
+        assert_eq!(search.matches[0].start, 0);
+        assert_eq!(search.matches[0].end, 5);
     }
 }

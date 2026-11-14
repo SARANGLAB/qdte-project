@@ -18,6 +18,14 @@ pub struct Renderer {
     tab_width: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StyleState {
+    Normal,
+    Selection,
+    Search,
+    ActiveSearch,
+}
+
 impl Renderer {
     pub fn new(tab_width: usize) -> Self {
         Self {
@@ -61,20 +69,27 @@ impl Renderer {
                 let (char_range, full_line) = if let Some((s, e, lw)) = sel {
                     if lw {
                         let line_start = buffer.line_to_char(line_idx);
-                        // Baris terpilih jika line_start berada di dalam [s, e).
-                        // Edge case: baris kosong di akhir buffer dengan s == e.
-                        let selected = if s == e {
-                            line_start == s
-                        } else {
-                            line_start >= s && line_start < e
-                        };
-                        (None, selected)
+                        let line_end = line_start + buffer.line(line_idx).unwrap_or_default().chars().count();
+                        (Some((line_start, line_end)), s <= line_start && line_end <= e)
                     } else {
                         (Some((s, e)), false)
                     }
                 } else {
                     (None, false)
                 };
+
+                let mut search_ranges = Vec::new();
+                if let Some(search) = &app.search {
+                    let line_start = buffer.line_to_char(line_idx);
+                    let line_end = line_start + buffer.line(line_idx).unwrap_or_default().chars().count();
+
+                    for (i, m) in search.matches.iter().enumerate() {
+                        if m.start >= line_start && m.start < line_end {
+                            let is_active = i == search.current_idx;
+                            search_ranges.push((m.start, m.end, is_active));
+                        }
+                    }
+                }
 
                 let rendered = render_line_with_selection(
                     buffer,
@@ -84,10 +99,13 @@ impl Renderer {
                     self.tab_width,
                     char_range,
                     full_line,
+                    &search_ranges,
                 );
                 if !rendered.is_empty() {
                     queue!(stdout, Print(rendered))?;
                 }
+            } else {
+                queue!(stdout, Print("~"))?;
             }
         }
 
@@ -160,8 +178,6 @@ impl Renderer {
 
 // ---- pure helpers (tested) ------------------------------------------------
 
-/// Visual width of the first `grapheme_count` graphemes of `line_text`,
-/// with tabs expanded to the next multiple of `tab_stop`.
 pub(crate) fn visual_col(line_text: &str, grapheme_count: usize, tab_width: usize) -> usize {
     let mut w = 0usize;
     for (i, g) in line_text.graphemes(true).enumerate() {
@@ -183,8 +199,9 @@ pub(crate) fn render_line_with_selection(
     left_col: usize,
     max_width: usize,
     tab_width: usize,
-    selection: Option<(usize, usize)>, // absolute char range, exclusive end
+    selection: Option<(usize, usize)>,
     full_line: bool,
+    search_ranges: &[(usize, usize, bool)], // (start, end, is_active)
 ) -> String {
     let text = buffer.line(line_idx).unwrap_or_default();
     let line_start = buffer.line_to_char(line_idx);
@@ -193,7 +210,7 @@ pub(crate) fn render_line_with_selection(
     let mut visual = 0usize;
     let mut emitted = 0usize;
     let mut char_offset = 0usize;
-    let mut in_hl = false;
+    let mut current_style = StyleState::Normal;
 
     for g in text.graphemes(true) {
         let gw = if g == "\t" {
@@ -203,7 +220,8 @@ pub(crate) fn render_line_with_selection(
         };
 
         let abs_pos = line_start + char_offset;
-        let selected = if full_line {
+
+        let is_selected = if full_line {
             true
         } else if let Some((s, e)) = selection {
             abs_pos >= s && abs_pos < e
@@ -211,24 +229,46 @@ pub(crate) fn render_line_with_selection(
             false
         };
 
-        // Skip if entirely left of viewport
+        let mut is_search = false;
+        let mut is_active_search = false;
+        for &(s, e, active) in search_ranges {
+            if abs_pos >= s && abs_pos < e {
+                if active {
+                    is_active_search = true;
+                } else {
+                    is_search = true;
+                }
+                break;
+            }
+        }
+
+        let new_style = if is_active_search {
+            StyleState::ActiveSearch
+        } else if is_search {
+            StyleState::Search
+        } else if is_selected {
+            StyleState::Selection
+        } else {
+            StyleState::Normal
+        };
+
+        if new_style != current_style {
+            match new_style {
+                StyleState::Normal => out.push_str("\x1b[0m"),
+                StyleState::Search => out.push_str("\x1b[43;30m"), // bg kuning, fg hitam
+                StyleState::ActiveSearch => out.push_str("\x1b[103;30m"), // bg kuning terang, fg hitam
+                StyleState::Selection => out.push_str("\x1b[7m"), // reverse video
+            }
+            current_style = new_style;
+        }
+
         if visual + gw <= left_col {
             visual += gw;
             char_offset += g.chars().count();
             continue;
         }
-        // Stop if overflowing right edge
         if emitted + gw > max_width {
             break;
-        }
-
-        // Toggle highlight
-        if selected && !in_hl {
-            out.push_str("\x1b[7m"); // reverse video
-            in_hl = true;
-        } else if !selected && in_hl {
-            out.push_str("\x1b[27m");
-            in_hl = false;
         }
 
         if visual < left_col {
@@ -245,15 +285,14 @@ pub(crate) fn render_line_with_selection(
         char_offset += g.chars().count();
     }
 
-    if in_hl {
-        out.push_str("\x1b[27m");
+    if current_style != StyleState::Normal {
+        out.push_str("\x1b[0m");
     }
 
-    // Line mode: fill to end of width with highlight
     if full_line && emitted < max_width {
         out.push_str("\x1b[7m");
         out.push_str(&" ".repeat(max_width - emitted));
-        out.push_str("\x1b[27m");
+        out.push_str("\x1b[0m");
     }
 
     out
@@ -269,7 +308,6 @@ fn format_prompt(prompt: &crate::app::Prompt, width: usize) -> String {
         line.push_str(note);
     }
 
-    // Truncate to width.
     let mut out = String::new();
     let mut w = 0usize;
     for g in line.graphemes(true) {
@@ -338,8 +376,6 @@ mod tests {
         Buffer::from_str(s)
     }
 
-    // ---- visual_col ----
-
     #[test]
     fn visual_col_empty() {
         assert_eq!(visual_col("", 0, TAB_WIDTH), 0);
@@ -354,29 +390,25 @@ mod tests {
 
     #[test]
     fn visual_col_tab_expanded() {
-        // "a\t" — 'a' at col 0, tab jumps to col 4
         assert_eq!(visual_col("a\t", 2, TAB_WIDTH), 4);
     }
 
     #[test]
     fn visual_col_wide_char() {
-        // Each CJK char is width 2
         assert_eq!(visual_col("日本語", 1, TAB_WIDTH), 2);
         assert_eq!(visual_col("日本語", 2, TAB_WIDTH), 4);
     }
 
     #[test]
     fn visual_col_custom_tab_width() {
-        // Same content, tab_width = 8
         assert_eq!(visual_col("a\t", 2, 8), 8);
     }
 
-    // ---- render_line ----
     #[test]
     fn render_line_simple() {
         let b = buf("hello");
         assert_eq!(
-            render_line_with_selection(&b, 0, 0, 80, TAB_WIDTH, None, false),
+            render_line_with_selection(&b, 0, 0, 80, TAB_WIDTH, None, false, &[]),
             "hello"
         );
     }
@@ -385,7 +417,7 @@ mod tests {
     fn render_line_with_left_offset() {
         let b = buf("abcdef");
         assert_eq!(
-            render_line_with_selection(&b, 0, 2, 80, TAB_WIDTH, None, false),
+            render_line_with_selection(&b, 0, 2, 80, TAB_WIDTH, None, false, &[]),
             "cdef"
         );
     }
@@ -394,7 +426,7 @@ mod tests {
     fn render_line_truncates_to_max_width() {
         let b = buf("abcdef");
         assert_eq!(
-            render_line_with_selection(&b, 0, 0, 3, TAB_WIDTH, None, false),
+            render_line_with_selection(&b, 0, 0, 3, TAB_WIDTH, None, false, &[]),
             "abc"
         );
     }
@@ -403,7 +435,7 @@ mod tests {
     fn render_line_expands_tab() {
         let b = buf("a\tb");
         assert_eq!(
-            render_line_with_selection(&b, 0, 0, 80, TAB_WIDTH, None, false),
+            render_line_with_selection(&b, 0, 0, 80, TAB_WIDTH, None, false, &[]),
             "a   b"
         );
     }
@@ -412,7 +444,7 @@ mod tests {
     fn render_line_handles_offset_cutting_tab() {
         let b = buf("a\tb");
         assert_eq!(
-            render_line_with_selection(&b, 0, 2, 80, TAB_WIDTH, None, false),
+            render_line_with_selection(&b, 0, 2, 80, TAB_WIDTH, None, false, &[]),
             "  b"
         );
     }
@@ -421,7 +453,7 @@ mod tests {
     fn render_line_out_of_range_is_empty() {
         let b = buf("only");
         assert_eq!(
-            render_line_with_selection(&b, 5, 0, 80, TAB_WIDTH, None, false),
+            render_line_with_selection(&b, 5, 0, 80, TAB_WIDTH, None, false, &[]),
             ""
         );
     }
@@ -430,7 +462,7 @@ mod tests {
     fn render_line_respects_custom_tab_width() {
         let b = buf("a\tb");
         assert_eq!(
-            render_line_with_selection(&b, 0, 0, 80, 8, None, false),
+            render_line_with_selection(&b, 0, 0, 80, 8, None, false, &[]),
             "a       b"
         );
     }
@@ -438,19 +470,18 @@ mod tests {
     #[test]
     fn render_line_with_char_selection_highlights_range() {
         let b = buf("abcdef");
-        let out = render_line_with_selection(&b, 0, 0, 80, TAB_WIDTH, Some((1, 4)), false);
-        // Output includes ANSI escape codes
-        assert!(out.contains("\x1b[7m")); // reverse on
-        assert!(out.contains("\x1b[27m")); // reverse off
+        let out = render_line_with_selection(&b, 0, 0, 80, TAB_WIDTH, Some((1, 4)), false, &[]);
+        assert!(out.contains("\x1b[7m"));
+        assert!(out.contains("\x1b[0m"));
         assert!(out.contains("bcd"));
     }
 
     #[test]
     fn render_line_full_line_highlight() {
         let b = buf("abc");
-        let out = render_line_with_selection(&b, 0, 0, 10, TAB_WIDTH, Some((0, 3)), true);
+        let out = render_line_with_selection(&b, 0, 0, 10, TAB_WIDTH, Some((0, 3)), true, &[]);
         assert!(out.starts_with("\x1b[7m"));
-        assert!(out.contains("\x1b[27m"));
+        assert!(out.contains("\x1b[0m"));
     }
 
     #[test]
@@ -459,7 +490,7 @@ mod tests {
         let p = Prompt::new(PromptKind::Open, "hello".to_string());
         let s = format_prompt(&p, 20);
         assert!(s.starts_with("[Open] hello"));
-        assert_eq!(s.chars().count(), 20); // padded to full width
+        assert_eq!(s.chars().count(), 20);
     }
 
     #[test]

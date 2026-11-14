@@ -40,6 +40,11 @@ impl Keymap for NormalKeymap {
             (Home, _) => Command::Editor(Action::MoveLineStart),
             (End, _) => Command::Editor(Action::MoveLineEnd),
 
+            // Search
+            (Char('f'), M::CONTROL) => Command::Search,
+            (F(3), M::NONE) => Command::SearchNext,
+            (F(3), M::SHIFT) => Command::SearchPrev,
+
             _ => return None,
         })
     }

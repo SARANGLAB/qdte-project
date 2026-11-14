@@ -86,22 +86,27 @@ fn handle_prompt_key(app: &mut App, key: crossterm::event::KeyEvent) {
     use crossterm::event::{KeyCode, KeyModifiers};
 
     match (key.code, key.modifiers) {
-        (KeyCode::Esc, _) => app.cancel_prompt(),
+        (KeyCode::Esc, _) => {
+            app.cancel_prompt();
+        }
         (KeyCode::Enter, _) => app.confirm_prompt(),
         (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
             if let Some(prompt) = app.prompt.as_mut() {
                 prompt.insert_char(c);
             }
+            app.update_live_search();
         }
         (KeyCode::Backspace, _) => {
             if let Some(prompt) = app.prompt.as_mut() {
                 prompt.backspace();
             }
+            app.update_live_search();
         }
         (KeyCode::Delete, _) => {
             if let Some(prompt) = app.prompt.as_mut() {
                 prompt.delete();
             }
+            app.update_live_search();
         }
         (KeyCode::Left, _) => {
             if let Some(prompt) = app.prompt.as_mut() {
@@ -234,6 +239,27 @@ fn dispatch_command(app: &mut App, cmd: Command, quit_armed: &mut bool) -> bool 
                 app.selection_anchor = Some(cursor);
                 app.editor.set_cursor(anchor);
             }
+            *quit_armed = false;
+            false
+        }
+        Command::Search => {
+            app.open_prompt(PromptKind::Search);
+            *quit_armed = false;
+            false
+        }
+        Command::SearchNext => {
+            app.search_next();
+            *quit_armed = false;
+            false
+        }
+        Command::SearchPrev => {
+            app.search_prev();
+            *quit_armed = false;
+            false
+        }
+        Command::ClearSearch => {
+            app.search = None;
+            app.message = None;
             *quit_armed = false;
             false
         }
