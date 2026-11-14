@@ -24,18 +24,17 @@ Development principles:
 
 ## Status
 
-**v0.1.0 — early development.** Core editing is functional. Many features from
-the roadmap are still in progress (see [Roadmap](#roadmap)). The codebase is
-small and changes frequently.
+**v0.1.0 — early development.** Core editing is functional and stable. The
+codebase is small and changes frequently.
 
 ## Features
 
 Current as of v0.1.0:
 
 - **Two keybinding profiles**
-  - *Normal* — non-modal, traditional shortcuts (Ctrl+S, Ctrl+X, arrows).
-  - *Vim* — modal editing (`h j k l`, `i a`, `dd`, `gg`, `Esc`).
-  - Selected automatically by how the binary is invoked (`vim` → Vim keymap).
+  - *Normal* — non-modal, traditional shortcuts (`Ctrl+S`, `Ctrl+X`, arrows).
+  - *Vim* — modal editing (Normal, Insert, and Visual modes).
+  - Selected automatically by how the binary is invoked, or forced via config.
 - **File I/O** with round-trip preservation of:
   - Line endings (LF or CRLF — detected per file, preserved on write).
   - UTF-8 BOM (stripped from buffer, restored on write).
@@ -43,13 +42,24 @@ Current as of v0.1.0:
   - Grapheme-cluster aware horizontal movement (CJK, emoji ZWJ sequences,
     regional-indicator flags all move as one unit).
   - Visual column tracking with Unicode width for correct rendering.
+  - Block cursor in Normal/Visual modes, bar cursor in Insert mode.
+- **Editing**
+  - Full undo/redo history with coalescing (contiguous typing merges into
+    a single undo step).
+  - Save, Save As, Open, and Quit with unsaved-changes protection.
+- **Vim Advanced**
+  - Word motions (`w`, `b`, `e`, `W`, `B`, `E`).
+  - Yank/Paste (`yy`, `p`, `P`) with linewise and charwise support.
+  - Visual mode (`v`, `V`) with movement, `y`, `d`/`x`, and `o` swap anchor.
+  - Command-line mode (`:w`, `:wq`, `:q`, `:q!`, `:e`).
+- **Configuration** via TOML.
 - **Full-screen renderer**
   - Vertical and horizontal scrolling.
-  - Tab expansion (tab stop = 4).
-  - Status bar with mode, filename, dirty flag, cursor position.
-  - `~` for lines past EOF.
-- **New files are not created until save.** Opening `qdte newfile.txt` creates
-  an empty buffer in memory; the file appears on disk only after `Ctrl+S`.
+  - Tab expansion, `~` for lines past EOF.
+  - Status bar with mode, filename, dirty flag, cursor position, and transient
+    messages.
+- **New files are not created until save.** Opening a non-existent path creates
+  an empty buffer in memory; the file appears on disk only after saving.
 
 ## Building
 
@@ -61,7 +71,15 @@ cd sarang-qdte
 cargo build --release
 ```
 
-The binary is `target/release/sarang-qdte` (`sarang-qdte.exe` on Windows).
+The binary is `target/release/qdte` (`qdte.exe` on Windows).
+
+### Installing to PATH
+
+```sh
+cargo install --path .
+```
+
+After installing, `qdte` will be available from any directory.
 
 ## Running
 
@@ -80,35 +98,37 @@ make QDTE accessible under a `vim`, `nvim`, or `vi` name.
 **Linux / macOS:**
 
 ```sh
-ln -sf /path/to/sarang-qdte ~/.local/bin/vim
-ln -sf /path/to/sarang-qdte ~/.local/bin/nano
+ln -sf /path/to/qdte ~/.local/bin/vim
+ln -sf /path/to/qdte ~/.local/bin/nano
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-Copy-Item sarang-qdte.exe vim.exe
-Copy-Item sarang-qdte.exe nano.exe
+Copy-Item "$env:USERPROFILE\.cargo\bin\qdte.exe" "$env:USERPROFILE\.cargo\bin\vim.exe"
+Copy-Item "$env:USERPROFILE\.cargo\bin\qdte.exe" "$env:USERPROFILE\.cargo\bin\nano.exe"
 ```
 
 QDTE inspects `argv[0]` — `vim`, `nvim`, and `vi` select Vim keybindings;
 anything else (including `qdte`, `nano`) uses the non-modal keybindings.
+This can be overridden in the configuration file.
 
 ## Keybindings
 
 ### Normal profile (default)
 
-Non-modal editing. QDTE behaves like a conventional terminal editor.
+Non-modal editing.
 
 | Key         | Action                    |
 |-------------|---------------------------|
 | `Ctrl+S`    | Save                      |
-| `Ctrl+X`    | Quit (warns if unsaved)   |
-| `Ctrl+Q`    | Quit (alias)              |
-| `Ctrl+C`    | Quit (alias)              |
+| `Ctrl+Shift+S` / `F2` | Save As         |
+| `Ctrl+O`    | Open file                 |
+| `Ctrl+X` / `Ctrl+Q` / `Ctrl+C` | Quit (warns if unsaved) |
+| `Ctrl+Z`    | Undo                      |
+| `Ctrl+Y`    | Redo                      |
 | `←` `→` `↑` `↓` | Move cursor           |
-| `Home`      | Start of line             |
-| `End`       | End of line               |
+| `Home` / `End` | Start / end of line    |
 | `Enter`     | Insert newline            |
 | `Tab`       | Insert tab                |
 | `Backspace` | Delete character before   |
@@ -116,25 +136,27 @@ Non-modal editing. QDTE behaves like a conventional terminal editor.
 
 ### Vim profile
 
-Modal editing. Invoke via `vim`, `nvim`, or `vi` as described above.
+Modal editing. Invoke via `vim`, `nvim`, or `vi`.
 
 **Normal mode:**
 
 | Key       | Action                              |
 |-----------|-------------------------------------|
 | `h j k l` | Left, down, up, right               |
-| `0`       | Start of line                       |
-| `$`       | End of line                         |
-| `gg`      | Start of buffer                     |
-| `G`       | End of buffer                       |
-| `i`       | Insert mode (at cursor)             |
-| `a`       | Append (after cursor, insert mode)  |
-| `I`       | Insert at start of line             |
-| `A`       | Append at end of line               |
-| `o`       | Open line below (insert mode)       |
-| `O`       | Open line above (insert mode)       |
+| `0` / `$` | Start / end of line                 |
+| `gg` / `G`| Start / end of buffer               |
+| `w b e`   | Next word, previous word, end of word |
+| `W B E`   | Same, but WORDs (ignore punctuation) |
+| `i a I A` | Insert / append (variants)          |
+| `o O`     | Open line below / above             |
 | `x`       | Delete character under cursor       |
 | `dd`      | Delete current line                 |
+| `yy`      | Yank current line                   |
+| `p P`     | Paste below / above (line or char-wise) |
+| `v V`     | Enter Visual / Visual Line mode     |
+| `u`       | Undo                                |
+| `Ctrl+R`  | Redo                                |
+| `:`       | Enter command-line mode             |
 | `Esc`     | Cancel pending operator             |
 
 **Insert mode:**
@@ -144,16 +166,63 @@ Modal editing. Invoke via `vim`, `nvim`, or `vi` as described above.
 | Printable   | Insert character          |
 | `Enter`     | Insert newline            |
 | `Tab`       | Insert tab                |
-| `Backspace` | Delete before cursor      |
-| `Delete`    | Delete after cursor       |
+| `Backspace` / `Delete` | Delete before / after |
 | Arrows      | Move cursor               |
-| `Home` `End`| Start / end of line       |
 | `Esc`       | Return to normal mode     |
-| `Ctrl+S`    | Save                      |
-| `Ctrl+X`    | Quit (warns if unsaved)   |
+| `Ctrl+S` / `Ctrl+O` | Save / Open       |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / Redo       |
 
-The two profiles share a single editor engine — only key-to-action mapping
-differs.
+**Visual mode (`v`) / Visual Line mode (`V`):**
+
+| Key       | Action                              |
+|-----------|-------------------------------------|
+| `h j k l` | Extend selection                    |
+| `w b e`   | Extend by word                      |
+| `d x`     | Delete selection                    |
+| `y`       | Yank selection                      |
+| `o`       | Swap anchor and cursor              |
+| `v` / `V` | Toggle visual / visual-line mode    |
+| `Esc`     | Exit to normal mode                 |
+
+**Command-line mode (`:`):**
+
+| Command     | Action                              |
+|-------------|-------------------------------------|
+| `:w [path]` | Save (optionally to path)           |
+| `:wq` / `:x`| Save and quit                       |
+| `:q`        | Quit (refused if unsaved changes)   |
+| `:q!`       | Force quit                          |
+| `:e <path>` | Open file                           |
+
+## Configuration
+
+QDTE looks for a TOML configuration file at:
+
+- **Windows:** `%APPDATA%\qdte\config.toml`
+- **macOS:** `~/Library/Application Support/qdte/config.toml`
+- **Linux:** `$XDG_CONFIG_HOME/qdte/config.toml` (or `~/.config/qdte/config.toml`)
+
+If the file is missing, defaults are used. Parse errors print a warning to
+stderr and fall back to defaults rather than refusing to start.
+
+Example `config.toml`:
+
+```toml
+# Visual tab stop for rendering and expand_tab.
+tab_width = 4
+
+# Tab inserts spaces instead of a literal '\t'.
+expand_tab = false
+
+# Append trailing newline on save if missing.
+# Caveat: QDTE treats '\n' as a separator, not a terminator. With fixeol
+# enabled, saving "hello" writes "hello\n"; reopening shows an extra empty
+# last line.
+fixeol = false
+
+# Force keymap. Omit to infer from argv[0].
+# keymap = "normal" # or "vim"
+```
 
 ## Roadmap
 
@@ -168,48 +237,56 @@ Ordered roughly by priority:
 - [x] Normal keybinding profile
 - [x] Vim keybinding profile (subset)
 - [x] Full-screen renderer with status bar
-- [ ] Open command (`Ctrl+O`) and Save As
-- [ ] Undo / redo
-- [ ] Search
-- [ ] Visual mode, yank, paste
-- [ ] `:` command-line mode
-- [ ] Word motions (`w`, `b`, `e`)
+- [x] Undo / redo
+- [x] Open, Save As, and prompt UI
+- [x] Configuration file
+- [x] Visual mode, yank, paste
+- [x] `:` command-line mode
+- [x] Word motions (`w`, `b`, `e`)
+- [x] Block cursor in Normal/Visual modes
+- [ ] Search (`/` or `Ctrl+F`)
 - [ ] Line number gutter
-- [ ] Configuration file
+- [ ] Syntax highlighting
 - [ ] Distribution and packaging (Linux, Windows, macOS)
+- [ ] CI release pipeline
 
 ## Architecture
 
 ```
 src/
-├── main.rs              entry point, event loop
-├── app.rs               application state (editor + file metadata + mode)
+├── main.rs              entry point, event loop, command dispatch
+├── app.rs               application state, prompt UI, command parsing
+├── config.rs            TOML configuration loading
 ├── cli/                 argument parsing and argv[0] detection
 ├── editor/
 │   ├── buffer.rs        Ropey-backed text buffer (char-indexed)
-│   ├── cursor.rs        grapheme-aware cursor with movement primitives
+│   ├── cursor.rs        grapheme-aware cursor, word motions
 │   ├── action.rs        abstract editor actions
-│   ├── mode.rs          Normal / Insert mode
-│   └── mod.rs           Editor: owns buffer + cursor, applies actions
+│   ├── history.rs       undo/redo stack with coalescing
+│   ├── register.rs      yank register
+│   ├── mode.rs          Normal / Insert / Visual / VisualLine
+│   └── mod.rs           Editor: owns buffer, cursor, history, register
 ├── io/
 │   ├── reader.rs        file loading with line-ending/BOM detection
 │   └── writer.rs        file saving with line-ending/BOM restoration
 ├── keymap/
-│   ├── dispatcher.rs    selects keymap by invocation, drives resolve()
+│   ├── dispatcher.rs    selects keymap, drives resolve()
 │   ├── normal.rs        non-modal keybinding profile
-│   ├── vim.rs           modal keybinding profile with state machine
+│   ├── vim.rs           modal keybinding profile with state machines
 │   └── mod.rs           Keymap trait, Command enum
 └── terminal/
     ├── input.rs         key event reading
-    ├── renderer.rs      full-screen drawing
-    └── mod.rs           RAII terminal guard (raw mode + alternate screen)
+    ├── renderer.rs      full-screen drawing, visual selection highlight
+    └── mod.rs           RAII terminal guard
 ```
 
 Separation of concerns:
 
-- `Editor` (buffer + cursor) knows nothing about keybindings or filesystem.
-- `App` owns the editor plus file path, line ending, BOM, dirty flag, mode.
-- Keymaps resolve keys to `Command`s; commands are dispatched by the app.
+- `Editor` (buffer, cursor, history, register) knows nothing about keybindings,
+  filesystem, terminal, or modes.
+- `App` owns the editor plus file path, line ending, BOM, mode, selection
+  anchor, prompt, and dirty state.
+- Keymaps resolve keys to `Command`s; commands are dispatched by `App`.
 - `io` is unaware of rendering; `renderer` is unaware of filesystem.
 - Both keybinding profiles share one editor engine.
 
@@ -219,11 +296,12 @@ Separation of concerns:
 cargo test
 ```
 
-Unit tests live alongside source (`#[cfg(test)] mod tests`); integration tests
-are in `tests/`. Current coverage includes: CLI parsing, I/O round-trips
-(LF/CRLF, BOM), buffer operations, cursor movement (including emoji ZWJ and
-regional indicators), editor action dispatch, keymap resolution, vim state
-machine, and renderer line formatting.
+Integration tests live in `tests/`; unit tests are alongside source
+(`#[cfg(test)] mod tests`). Current coverage includes CLI parsing, I/O
+round-trips (LF/CRLF, BOM), buffer operations, cursor movement (including
+emoji ZWJ and regional indicators), editor action dispatch, keymap resolution
+(normal and vim), undo/redo coalescing, visual mode ranges, and renderer line
+formatting.
 
 ## License
 
