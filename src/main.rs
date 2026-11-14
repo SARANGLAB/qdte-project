@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use qdte::app::{App, PromptKind};
+use qdte::app::{App, Prompt,PromptKind};
 use qdte::editor::{Action, Mode};
 use qdte::cli::args::Invocation;
 use qdte::cli;
@@ -53,6 +53,9 @@ fn run(app: &mut App, vim: bool, config: &Config) -> std::io::Result<()> {
     app.mode = dispatcher.initial_mode();
 
     loop {
+        if app.should_quit {
+            break;
+        }
         let mode_label = if dispatcher.shows_mode() {
             app.mode.label()
         } else {
@@ -217,6 +220,20 @@ fn dispatch_command(app: &mut App, cmd: Command, quit_armed: &mut bool) -> bool 
             }
             app.mode = Mode::Normal;
             app.selection_anchor = None;
+            *quit_armed = false;
+            false
+        }
+        Command::EnterCommandPrompt => {
+            app.prompt = Some(Prompt::new(PromptKind::Command, String::new()));
+            *quit_armed = false;
+            false
+        }
+        Command::SwapAnchor => {
+            if let Some(anchor) = app.selection_anchor {
+                let cursor = app.editor.cursor().char_idx();
+                app.selection_anchor = Some(cursor);
+                app.editor.set_cursor(anchor);
+            }
             *quit_armed = false;
             false
         }

@@ -9,7 +9,6 @@ use crate::editor::{Action, Mode};
 #[derive(Debug, Clone)]
 pub enum Command {
     Editor(Action),
-    /// Sequence of commands to apply in order.
     Seq(Vec<Command>),
     SetMode(Mode),
     Save,
@@ -20,6 +19,8 @@ pub enum Command {
     ExitVisual,
     DeleteVisualSelection,
     YankVisualSelection,
+    EnterCommandPrompt,
+    SwapAnchor,
 }
 
 pub trait Keymap {

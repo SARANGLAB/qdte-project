@@ -97,6 +97,11 @@ impl Editor {
         &self.register
     }
 
+    pub fn set_cursor(&mut self, char_idx: usize) {
+        self.cursor = Cursor::at(char_idx);
+        self.cursor.clamp(&self.buffer);
+    }
+
     /// Apply an action. Mutates buffer and/or cursor as appropriate.
     /// Apply an action. Mutates buffer and/or cursor as appropriate.
     pub fn apply(&mut self, action: Action) -> Result<(), EditorError> {
@@ -254,55 +259,103 @@ impl Editor {
                 if self.register.is_empty() {
                     return Ok(());
                 }
-                let line = self.cursor.line(&self.buffer);
-                let line_start = self.buffer.line_to_char(line);
-                let line_text = self.buffer.line(line).unwrap_or_default();
-                let line_end = line_start + line_text.chars().count();
-                let buffer_len = self.buffer.len_chars();
-
-                let (insert_at, to_insert, cursor_after) = if line_end < buffer_len {
-                    // There is a '\n' at line_end; insert after it.
-                    (line_end + 1, self.register.content.clone(), line_end + 1)
-                } else {
-                    // Last line: prepend '\n' so the paste starts on a new line.
-                    (
-                        line_end,
-                        format!("\n{}", self.register.content),
-                        line_end + 1,
-                    )
-                };
-
                 let cursor_before = self.cursor.char_idx();
-                self.buffer.insert_str(insert_at, &to_insert)?;
-                self.cursor = Cursor::at(cursor_after);
-                self.cursor.clamp(&self.buffer);
-                self.history.record(Change::insert(
-                    insert_at,
-                    to_insert,
-                    cursor_before,
-                    cursor_after,
-                    ChangeKind::Structural,
-                ));
+                let text = self.register.content.clone();
+
+                if self.register.linewise {
+                    let line = self.cursor.line(&self.buffer);
+                    let line_start = self.buffer.line_to_char(line);
+                    let line_text = self.buffer.line(line).unwrap_or_default();
+                    let line_end = line_start + line_text.chars().count();
+                    let buffer_len = self.buffer.len_chars();
+
+                    let (insert_at, to_insert) = if line_end < buffer_len {
+                        (line_end + 1, text.clone())
+                    } else {
+                        (line_end, format!("\n{}", text))
+                    };
+                    let cursor_after = line_end + 1;
+
+                    self.buffer.insert_str(insert_at, &to_insert)?;
+                    self.cursor = Cursor::at(cursor_after);
+                    self.cursor.clamp(&self.buffer);
+                    let actual = self.cursor.char_idx();
+                    self.history.record(Change::insert(
+                        insert_at,
+                        to_insert,
+                        cursor_before,
+                        actual,
+                        ChangeKind::Structural,
+                    ));
+                } else {
+                    let insert_at = if self.cursor.char_idx() < self.buffer.len_chars() {
+                        self.cursor
+                            .next_grapheme_end(&self.buffer)
+                            .unwrap_or(self.cursor.char_idx())
+                    } else {
+                        self.cursor.char_idx()
+                    };
+
+                    self.buffer.insert_str(insert_at, &text)?;
+                    let cursor_after = if text.is_empty() {
+                        insert_at
+                    } else {
+                        insert_at + text.chars().count() - 1
+                    };
+                    self.cursor = Cursor::at(cursor_after);
+                    self.cursor.clamp(&self.buffer);
+                    let actual = self.cursor.char_idx();
+                    self.history.record(Change::insert(
+                        insert_at,
+                        text,
+                        cursor_before,
+                        actual,
+                        ChangeKind::Structural,
+                    ));
+                }
             }
             Action::PasteBefore => {
                 if self.register.is_empty() {
                     return Ok(());
                 }
-                let line = self.cursor.line(&self.buffer);
-                let line_start = self.buffer.line_to_char(line);
                 let cursor_before = self.cursor.char_idx();
-                let to_insert = self.register.content.clone();
-                let cursor_after = line_start;
-                self.buffer.insert_str(line_start, &to_insert)?;
-                self.cursor = Cursor::at(cursor_after);
-                self.cursor.clamp(&self.buffer);
-                self.history.record(Change::insert(
-                    line_start,
-                    to_insert,
-                    cursor_before,
-                    cursor_after,
-                    ChangeKind::Structural,
-                ));
+                let text = self.register.content.clone();
+
+                if self.register.linewise {
+                    let line = self.cursor.line(&self.buffer);
+                    let line_start = self.buffer.line_to_char(line);
+
+                    self.buffer.insert_str(line_start, &text)?;
+                    self.cursor = Cursor::at(line_start);
+                    self.cursor.clamp(&self.buffer);
+                    let actual = self.cursor.char_idx();
+                    self.history.record(Change::insert(
+                        line_start,
+                        text,
+                        cursor_before,
+                        actual,
+                        ChangeKind::Structural,
+                    ));
+                } else {
+                    let insert_at = self.cursor.char_idx();
+
+                    self.buffer.insert_str(insert_at, &text)?;
+                    let cursor_after = if text.is_empty() {
+                        insert_at
+                    } else {
+                        insert_at + text.chars().count() - 1
+                    };
+                    self.cursor = Cursor::at(cursor_after);
+                    self.cursor.clamp(&self.buffer);
+                    let actual = self.cursor.char_idx();
+                    self.history.record(Change::insert(
+                        insert_at,
+                        text,
+                        cursor_before,
+                        actual,
+                        ChangeKind::Structural,
+                    ));
+                }
             }
             Action::DeleteRange { start, end } => {
                 if start < end {

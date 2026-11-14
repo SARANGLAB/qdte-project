@@ -53,3 +53,34 @@ fn big_word_skips_punctuation() {
     e.apply(Action::WordForwardBig).unwrap();
     assert_eq!(e.cursor().char_idx(), 8); // 'b' of baz
 }
+
+#[test]
+fn charwise_paste_after() {
+    let mut e = Editor::from_str("abcdef");
+    e.apply(Action::YankRange { start: 0, end: 3, linewise: false }).unwrap();
+    // cursor at 0 (after yank)
+    e.apply(Action::MoveRight).unwrap();
+    e.apply(Action::MoveRight).unwrap(); // cursor at 2 ('c')
+    e.apply(Action::PasteAfter).unwrap();
+    // Paste "abc" after 'c' → "abcabc" + "def" = "abcabcdef"
+    assert_eq!(e.buffer().as_string(), "abcabcdef");
+}
+
+#[test]
+fn charwise_paste_before() {
+    let mut e = Editor::from_str("abcdef");
+    e.apply(Action::YankRange { start: 0, end: 3, linewise: false }).unwrap();
+    e.apply(Action::MoveRight).unwrap();
+    e.apply(Action::MoveRight).unwrap();
+    e.apply(Action::MoveRight).unwrap(); // cursor at 3 ('d')
+    e.apply(Action::PasteBefore).unwrap();
+    assert_eq!(e.buffer().as_string(), "abcabcdef");
+}
+
+#[test]
+fn linewise_paste_still_works() {
+    let mut e = Editor::from_str("one\ntwo");
+    e.apply(Action::YankLine).unwrap();
+    e.apply(Action::PasteAfter).unwrap();
+    assert_eq!(e.buffer().as_string(), "one\none\ntwo");
+}

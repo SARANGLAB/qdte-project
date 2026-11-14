@@ -4,9 +4,9 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
+use crate::config::Config;
 use crate::editor::{Action, Editor, EditorError, Mode};
 use crate::io::{self, IoError, LineEnding};
-use crate::config::Config;
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -20,10 +20,11 @@ pub enum AppError {
     NoPath,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptKind {
     Open,
     SaveAs,
+    Command,
 }
 
 impl PromptKind {
@@ -31,6 +32,7 @@ impl PromptKind {
         match self {
             PromptKind::Open => "Open",
             PromptKind::SaveAs => "Save As",
+            PromptKind::Command => "Cmd",
         }
     }
 }
@@ -128,6 +130,7 @@ pub struct App {
     pub config: Config,
     pub prompt: Option<Prompt>,
     pub selection_anchor: Option<usize>,
+    pub should_quit: bool,
     saved_hash: Option<u64>,
 }
 
@@ -146,6 +149,7 @@ impl App {
             config,
             prompt: None,
             selection_anchor: None,
+            should_quit: false,
             saved_hash,
         }
     }
@@ -165,6 +169,7 @@ impl App {
             config,
             prompt: None,
             selection_anchor: None,
+            should_quit: false,
             saved_hash,
         })
     }
@@ -193,6 +198,7 @@ impl App {
         self.message = Some(format!("saved: {}", path.display()));
         Ok(())
     }
+
     pub fn open_prompt(&mut self, kind: PromptKind) {
         self.message = None;
         let initial = match kind {
@@ -201,9 +207,9 @@ impl App {
                 .as_ref()
                 .map(|p| p.display().to_string())
                 .unwrap_or_default(),
-            PromptKind::Open => String::new(),
+            PromptKind::Open | PromptKind::Command => String::new(),
         };
-        let mut prompt = Prompt::new(kind.clone(), initial);
+        let mut prompt = Prompt::new(kind, initial);
         if kind == PromptKind::Open && self.is_dirty() {
             prompt.note = Some("unsaved changes will be lost".to_string());
         }
@@ -253,7 +259,6 @@ impl App {
         let Some(prompt) = self.prompt.take() else {
             return;
         };
-
         let path_str = prompt.input.trim().to_string();
         if path_str.is_empty() {
             return;
@@ -262,8 +267,6 @@ impl App {
 
         match prompt.kind {
             PromptKind::Open => {
-                // If the file doesn't exist and we have unsaved changes,
-                // refuse rather than silently discard.
                 let existed = path.exists();
                 if !existed && self.is_dirty() {
                     let mut prompt = prompt;
@@ -280,6 +283,7 @@ impl App {
                         self.had_bom = new_app.had_bom;
                         self.saved_hash = new_app.saved_hash;
                         self.mode = Mode::Normal;
+                        self.selection_anchor = None;
                         self.message = Some(format!("opened: {}", path.display()));
                     }
                     Err(e) => {
@@ -312,6 +316,68 @@ impl App {
                     }
                 }
             }
+            PromptKind::Command => {
+                self.execute_command(&path_str);
+            }
+        }
+    }
+
+    fn execute_command(&mut self, cmd: &str) {
+        let mut parts = cmd.split_whitespace();
+        let name = parts.next().unwrap_or("");
+        let arg = parts.next();
+
+        match name {
+            "w" => {
+                if let Some(path) = arg {
+                    self.path = Some(PathBuf::from(path));
+                }
+                match self.save() {
+                    Ok(()) => {}
+                    Err(e) => self.message = Some(format!("error: {}", e)),
+                }
+            }
+            "wq" | "x" => {
+                if let Some(path) = arg {
+                    self.path = Some(PathBuf::from(path));
+                }
+                match self.save() {
+                    Ok(()) => self.should_quit = true,
+                    Err(e) => self.message = Some(format!("error: {}", e)),
+                }
+            }
+            "q" => {
+                if self.is_dirty() {
+                    self.message = Some("unsaved changes (add ! to override)".into());
+                } else {
+                    self.should_quit = true;
+                }
+            }
+            "q!" => {
+                self.should_quit = true;
+            }
+            "e" => {
+                if let Some(path) = arg {
+                    match App::from_file(PathBuf::from(path), self.config.clone()) {
+                        Ok(new_app) => {
+                            self.editor = new_app.editor;
+                            self.path = new_app.path;
+                            self.line_ending = new_app.line_ending;
+                            self.had_bom = new_app.had_bom;
+                            self.saved_hash = new_app.saved_hash;
+                            self.mode = Mode::Normal;
+                            self.selection_anchor = None;
+                            self.message = Some(format!("opened: {}", path));
+                        }
+                        Err(e) => self.message = Some(format!("error: {}", e)),
+                    }
+                } else {
+                    self.message = Some("usage: :e <file>".into());
+                }
+            }
+            _ => {
+                self.message = Some(format!("unknown command: {}", name));
+            }
         }
     }
 }
@@ -320,4 +386,60 @@ fn hash_str(s: &str) -> u64 {
     let mut h = DefaultHasher::new();
     s.hash(&mut h);
     h.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_w_saves() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        let mut app = App::new_empty(Config::default());
+        app.path = Some(path.clone());
+        app.apply_editor(Action::InsertChar('x')).unwrap();
+        app.execute_command("w");
+        assert!(!app.is_dirty());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "x");
+    }
+
+    #[test]
+    fn command_q_refuses_when_dirty() {
+        let mut app = App::new_empty(Config::default());
+        app.apply_editor(Action::InsertChar('x')).unwrap();
+        app.execute_command("q");
+        assert!(!app.should_quit);
+        assert!(app.message.is_some());
+    }
+
+    #[test]
+    fn command_qbang_quits() {
+        let mut app = App::new_empty(Config::default());
+        app.apply_editor(Action::InsertChar('x')).unwrap();
+        app.execute_command("q!");
+        assert!(app.should_quit);
+    }
+
+    #[test]
+    fn command_wq_saves_and_quits() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        let mut app = App::new_empty(Config::default());
+        app.path = Some(path.clone());
+        app.apply_editor(Action::InsertChar('y')).unwrap();
+        app.execute_command("wq");
+        assert!(app.should_quit);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "y");
+    }
+
+    #[test]
+    fn command_e_opens_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src.txt");
+        std::fs::write(&src, "loaded").unwrap();
+        let mut app = App::new_empty(Config::default());
+        app.execute_command(&format!("e {}", src.display()));
+        assert_eq!(app.editor.buffer().as_string(), "loaded");
+    }
 }
