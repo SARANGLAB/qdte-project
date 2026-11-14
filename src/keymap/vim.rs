@@ -10,6 +10,7 @@ enum Pending {
     None,
     D,
     G,
+    Y,
 }
 
 pub struct VimKeymap {
@@ -38,6 +39,10 @@ impl Keymap for VimKeymap {
 
     fn shows_mode(&self) -> bool {
         true
+    }
+
+    fn block_cursor(&self, mode: Mode) -> bool {
+        matches!(mode, Mode::Normal)
     }
 }
 
@@ -68,20 +73,26 @@ impl VimKeymap {
 
         // Handle pending operator
         match std::mem::take(&mut self.pending) {
-            Pending::D => {
-                if key.code == Char('d') && key.modifiers == M::NONE {
-                    return Some(Command::Editor(Action::DeleteLine));
-                }
-                return None;
+        Pending::D => {
+            if key.code == Char('d') && key.modifiers == M::NONE {
+                return Some(Command::Editor(Action::DeleteLine));
             }
-            Pending::G => {
-                if key.code == Char('g') && key.modifiers == M::NONE {
-                    return Some(Command::Editor(Action::MoveBufferStart));
-                }
-                return None;
-            }
-            Pending::None => {}
+            return None;
         }
+        Pending::G => {
+            if key.code == Char('g') && key.modifiers == M::NONE {
+                return Some(Command::Editor(Action::MoveBufferStart));
+            }
+            return None;
+        }
+        Pending::Y => {
+            if key.code == Char('y') && key.modifiers == M::NONE {
+                return Some(Command::Editor(Action::YankLine));
+            }
+            return None;
+        }
+        Pending::None => {}
+    }
 
         Some(match (key.code, key.modifiers) {
             (Char('u'), M::NONE) => Command::Editor(Action::Undo),
@@ -90,7 +101,7 @@ impl VimKeymap {
             (Char('k'), M::NONE) => Command::Editor(Action::MoveUp),
             (Char('l'), M::NONE) => Command::Editor(Action::MoveRightLineClamped),
             (Char('0'), M::NONE) => Command::Editor(Action::MoveLineStart),
-            (Char('$'), M::SHIFT) => Command::Editor(Action::MoveLineEnd),
+            (Char('$'), M::SHIFT) => Command::Editor(Action::MoveLineEndBlock),
             (Char('G'), M::SHIFT) => Command::Editor(Action::MoveBufferEnd),
             (Char('g'), M::NONE) => {
                 self.pending = Pending::G;
@@ -125,6 +136,18 @@ impl VimKeymap {
                 self.pending = Pending::D;
                 return None;
             }
+            (Char('w'), M::NONE) => Command::Editor(Action::WordForward),
+            (Char('b'), M::NONE) => Command::Editor(Action::WordBackward),
+            (Char('e'), M::NONE) => Command::Editor(Action::WordEnd),
+            (Char('W'), M::SHIFT) => Command::Editor(Action::WordForwardBig),
+            (Char('B'), M::SHIFT) => Command::Editor(Action::WordBackwardBig),
+            (Char('E'), M::SHIFT) => Command::Editor(Action::WordEndBig),
+            (Char('y'), M::NONE) => {
+                self.pending = Pending::Y;
+                return None;
+            }
+            (Char('p'), M::NONE) => Command::Editor(Action::PasteAfter),
+            (Char('P'), M::SHIFT) => Command::Editor(Action::PasteBefore),
             _ => return None,
         })
     }
@@ -283,5 +306,52 @@ mod tests {
         let ctrl_s = key(KeyCode::Char('s'), KeyModifiers::CONTROL);
         assert!(matches!(km.resolve(Mode::Normal, ctrl_s), Some(Command::Save)));
         assert!(matches!(km.resolve(Mode::Insert, ctrl_s), Some(Command::Save)));
+    }
+    #[test]
+    fn yy_yanks_line() {
+        let mut km = VimKeymap::new();
+        assert!(normal(&mut km, 'y').is_none());
+        assert!(matches!(
+            normal(&mut km, 'y'),
+            Some(Command::Editor(Action::YankLine))
+        ));
+    }
+
+    #[test]
+    fn y_other_cancels() {
+        let mut km = VimKeymap::new();
+        assert!(normal(&mut km, 'y').is_none());
+        assert!(normal(&mut km, 'w').is_none());
+        // Subsequent 'w' works alone
+        assert!(matches!(
+            normal(&mut km, 'w'),
+            Some(Command::Editor(Action::WordForward))
+        ));
+    }
+
+    #[test]
+    fn word_motions_map() {
+        let mut km = VimKeymap::new();
+        assert!(matches!(normal(&mut km, 'w'), Some(Command::Editor(Action::WordForward))));
+        assert!(matches!(normal(&mut km, 'b'), Some(Command::Editor(Action::WordBackward))));
+        assert!(matches!(normal(&mut km, 'e'), Some(Command::Editor(Action::WordEnd))));
+    }
+
+    #[test]
+    fn paste_maps() {
+        let mut km = VimKeymap::new();
+        assert!(matches!(normal(&mut km, 'p'), Some(Command::Editor(Action::PasteAfter))));
+        assert!(matches!(
+            normal_shift(&mut km, 'P'),
+            Some(Command::Editor(Action::PasteBefore))
+        ));
+    }
+    #[test]
+    fn dollar_moves_to_last_char() {
+        let mut km = VimKeymap::new();
+        assert!(matches!(
+            normal_shift(&mut km, '$'),
+            Some(Command::Editor(Action::MoveLineEndBlock))
+        ));
     }
 }

@@ -24,6 +24,10 @@ impl<K: Keymap> Dispatcher<K> {
     pub fn shows_mode(&self) -> bool {
         self.keymap.shows_mode()
     }
+
+    pub fn block_cursor(&self, mode: Mode) -> bool {
+        self.keymap.block_cursor(mode)
+    }
 }
 
 impl Dispatcher<Box<dyn Keymap>> {

@@ -28,6 +28,10 @@ pub trait Keymap {
     fn shows_mode(&self) -> bool {
         false
     }
+
+    fn block_cursor(&self, _mode: Mode) -> bool {
+        false
+    }
 }
 
 impl Keymap for Box<dyn Keymap> {
@@ -39,5 +43,8 @@ impl Keymap for Box<dyn Keymap> {
     }
     fn shows_mode(&self) -> bool {
         (**self).shows_mode()
+    }
+    fn block_cursor(&self, mode: Mode) -> bool {
+        (**self).block_cursor(mode)
     }
 }

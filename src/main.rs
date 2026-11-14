@@ -1,6 +1,7 @@
 use std::process::ExitCode;
 
 use qdte::app::{App, PromptKind};
+use qdte::editor::{Action, Mode};
 use qdte::cli::args::Invocation;
 use qdte::cli;
 use qdte::config::{Config, KeymapKind};
@@ -57,7 +58,8 @@ fn run(app: &mut App, vim: bool, config: &Config) -> std::io::Result<()> {
         } else {
             ""
         };
-        renderer.render(app, mode_label)?;
+        let block_cursor = dispatcher.block_cursor(app.mode);
+        renderer.render(app, mode_label, block_cursor)?;
 
         let key = read_key()?;
 
@@ -142,6 +144,10 @@ fn dispatch_command(app: &mut App, cmd: Command, quit_armed: &mut bool) -> bool 
             false
         }
         Command::SetMode(mode) => {
+            // Vim: Esc from insert mode moves cursor left one.
+            if app.mode == Mode::Insert && mode == Mode::Normal {
+                let _ = app.editor.apply(Action::MoveLeftLineClamped);
+            }
             app.mode = mode;
             app.message = None;
             *quit_armed = false;

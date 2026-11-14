@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 
 use crossterm::{
-    cursor::MoveTo,
+    cursor::{MoveTo, SetCursorStyle},
     queue,
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     terminal::{self, Clear, ClearType},
@@ -27,7 +27,7 @@ impl Renderer {
         }
     }
 
-    pub fn render(&mut self, app: &App, mode_label: &str) -> io::Result<()> {
+    pub fn render(&mut self, app: &App, mode_label: &str, block_cursor: bool) -> io::Result<()> {
         let (cols, rows) = terminal::size()?;
         let cols = cols as usize;
         let rows = rows as usize;
@@ -51,7 +51,6 @@ impl Renderer {
 
         let mut stdout = io::stdout();
 
-        // Single full-screen clear at the top.
         queue!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
 
         for row in 0..content_height {
@@ -67,17 +66,8 @@ impl Renderer {
             }
         }
 
-        let status = format_status(app, mode_label, cols);
-        queue!(
-            stdout,
-            MoveTo(0, content_height as u16),
-            SetBackgroundColor(Color::DarkGrey),
-            SetForegroundColor(Color::White),
-            Print(status),
-            ResetColor,
-        )?;
-
-        let (cx, cy) = if let Some(prompt) = &app.prompt {
+        // Draw prompt OR status bar (exactly one), and compute cursor position.
+        let (cx, cy, use_block) = if let Some(prompt) = &app.prompt {
             let prompt_line = format_prompt(prompt, cols);
             queue!(
                 stdout,
@@ -93,7 +83,7 @@ impl Renderer {
             let input_before: String = prompt.input.chars().take(prompt.cursor).collect();
             let input_w = UnicodeWidthStr::width(input_before.as_str());
             let cx = ((prefix_w + input_w).min(cols.saturating_sub(1))) as u16;
-            (cx, content_height as u16)
+            (cx, content_height as u16, false)
         } else {
             let status = format_status(app, mode_label, cols);
             queue!(
@@ -108,9 +98,15 @@ impl Renderer {
             let cx = (cursor_visual_col.saturating_sub(self.left_col) as u16)
                 .min(cols.saturating_sub(1) as u16);
             let cy = cursor_line.saturating_sub(self.top_line) as u16;
-            (cx, cy)
+            (cx, cy, block_cursor)
         };
-        queue!(stdout, MoveTo(cx, cy))?;
+
+        let style = if use_block {
+            SetCursorStyle::SteadyBlock
+        } else {
+            SetCursorStyle::SteadyBar
+        };
+        queue!(stdout, MoveTo(cx, cy), style)?;
 
         stdout.flush()?;
         Ok(())
@@ -134,12 +130,6 @@ impl Renderer {
         } else if cursor_col >= self.left_col + width {
             self.left_col = cursor_col + 1 - width;
         }
-    }
-}
-
-impl Default for Renderer {
-    fn default() -> Self {
-        Self::new(4)
     }
 }
 
@@ -376,23 +366,22 @@ mod tests {
         // tab_width = 8: 'a' + 7 spaces + 'b'
         assert_eq!(render_line(&b, 0, 0, 80, 8), "a       b");
     }
-}
+    #[test]
+    fn format_prompt_basic() {
+        use crate::app::{Prompt, PromptKind};
+        let p = Prompt::new(PromptKind::Open, "hello".to_string());
+        let s = format_prompt(&p, 20);
+        assert!(s.starts_with("[Open] hello"));
+        assert_eq!(s.chars().count(), 20); // padded to full width
+    }
 
-#[test]
-fn format_prompt_basic() {
-    use crate::app::{Prompt, PromptKind};
-    let p = Prompt::new(PromptKind::Open, "hello".to_string());
-    let s = format_prompt(&p, 20);
-    assert!(s.starts_with("[Open] hello"));
-    assert_eq!(s.chars().count(), 20); // padded to full width
-}
-
-#[test]
-fn format_prompt_with_note() {
-    use crate::app::{Prompt, PromptKind};
-    let mut p = Prompt::new(PromptKind::SaveAs, "out.txt".to_string());
-    p.note = Some("save failed".to_string());
-    let s = format_prompt(&p, 40);
-    assert!(s.contains("save failed"));
-    assert_eq!(s.chars().count(), 40);
+    #[test]
+    fn format_prompt_with_note() {
+        use crate::app::{Prompt, PromptKind};
+        let mut p = Prompt::new(PromptKind::SaveAs, "out.txt".to_string());
+        p.note = Some("save failed".to_string());
+        let s = format_prompt(&p, 40);
+        assert!(s.contains("save failed"));
+        assert_eq!(s.chars().count(), 40);
+    }
 }

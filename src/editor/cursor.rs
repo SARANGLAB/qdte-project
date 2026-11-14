@@ -24,6 +24,30 @@ impl Cursor {
         self.char_idx
     }
 
+    pub fn move_word_forward(&mut self, buffer: &Buffer) {
+        self.char_idx = word_forward(buffer, self.char_idx, false);
+    }
+
+    pub fn move_word_backward(&mut self, buffer: &Buffer) {
+        self.char_idx = word_backward(buffer, self.char_idx, false);
+    }
+
+    pub fn move_word_end(&mut self, buffer: &Buffer) {
+        self.char_idx = word_end(buffer, self.char_idx, false);
+    }
+
+    pub fn move_word_forward_big(&mut self, buffer: &Buffer) {
+        self.char_idx = word_forward(buffer, self.char_idx, true);
+    }
+
+    pub fn move_word_backward_big(&mut self, buffer: &Buffer) {
+        self.char_idx = word_backward(buffer, self.char_idx, true);
+    }
+
+    pub fn move_word_end_big(&mut self, buffer: &Buffer) {
+        self.char_idx = word_end(buffer, self.char_idx, true);
+    }
+
     /// Clamp the cursor to a valid char position in the given buffer.
     /// Call this after any buffer mutation.
     pub fn clamp(&mut self, buffer: &Buffer) {
@@ -223,6 +247,132 @@ fn position_for_line_grapheme_col(buffer: &Buffer, line: usize, target_col: usiz
     line_start + char_offset
 }
 
+// ---- word motion helpers ------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CharClass {
+    Whitespace,
+    Word,
+    Punct,
+}
+
+fn classify(c: char, big: bool) -> CharClass {
+    if c.is_whitespace() {
+        CharClass::Whitespace
+    } else if big {
+        // Big-WORD mode: everything non-whitespace is one class.
+        CharClass::Word
+    } else if c.is_alphanumeric() || c == '_' {
+        CharClass::Word
+    } else {
+        CharClass::Punct
+    }
+}
+
+fn char_class_at(buffer: &Buffer, idx: usize, big: bool) -> Option<CharClass> {
+    buffer.char_at(idx).map(|c| classify(c, big))
+}
+
+pub(crate) fn word_forward(buffer: &Buffer, pos: usize, big: bool) -> usize {
+    let len = buffer.len_chars();
+    if pos >= len {
+        return len;
+    }
+    let mut p = pos;
+
+    // Skip current class run (unless on whitespace).
+    let cur = match char_class_at(buffer, p, big) {
+        Some(c) => c,
+        None => return len,
+    };
+    if cur != CharClass::Whitespace {
+        while p < len && char_class_at(buffer, p, big) == Some(cur) {
+            p += 1;
+        }
+    }
+
+    // Skip whitespace.
+    while p < len && char_class_at(buffer, p, big) == Some(CharClass::Whitespace) {
+        p += 1;
+    }
+
+    p
+}
+
+pub(crate) fn word_backward(buffer: &Buffer, pos: usize, big: bool) -> usize {
+    if pos == 0 {
+        return 0;
+    }
+    let mut p = pos;
+
+    // Step back one.
+    p -= 1;
+
+    // Skip whitespace backward.
+    while p > 0 && char_class_at(buffer, p, big) == Some(CharClass::Whitespace) {
+        p -= 1;
+    }
+
+    // If we landed on whitespace (start of buffer case), stay put.
+    let Some(cur) = char_class_at(buffer, p, big) else {
+        return p;
+    };
+    if cur == CharClass::Whitespace {
+        return p;
+    }
+
+    // Skip same class backward.
+    while p > 0 && char_class_at(buffer, p - 1, big) == Some(cur) {
+        p -= 1;
+    }
+
+    p
+}
+
+pub(crate) fn word_end(buffer: &Buffer, pos: usize, big: bool) -> usize {
+    let len = buffer.len_chars();
+    if pos >= len {
+        return len.saturating_sub(1);
+    }
+    let mut p = pos;
+
+    let Some(cur) = char_class_at(buffer, p, big) else {
+        return p;
+    };
+
+    // If already at end of current class run (or on whitespace), advance one.
+    let at_end_of_run = cur != CharClass::Whitespace
+        && (p + 1 >= len || char_class_at(buffer, p + 1, big) != Some(cur));
+
+    if at_end_of_run || cur == CharClass::Whitespace {
+        if at_end_of_run {
+            p += 1;
+        }
+        // Skip whitespace.
+        while p < len && char_class_at(buffer, p, big) == Some(CharClass::Whitespace) {
+            p += 1;
+        }
+        if p >= len {
+            return len.saturating_sub(1);
+        }
+        // Now on start of next run; move to end of it.
+        let next_class = match char_class_at(buffer, p, big) {
+            Some(c) => c,
+            None => return p,
+        };
+        while p + 1 < len && char_class_at(buffer, p + 1, big) == Some(next_class) {
+            p += 1;
+        }
+    } else {
+        // Inside a run; go to its end.
+        while p + 1 < len && char_class_at(buffer, p + 1, big) == Some(cur) {
+            p += 1;
+        }
+    }
+
+    p
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -399,5 +549,76 @@ mod tests {
         let b = buf("abc\ndef");
         let c = Cursor::at(4);
         assert_eq!(c.previous_grapheme_start(&b), Some(3));
+    }
+    #[test]
+    fn word_forward_skips_word_and_whitespace() {
+        let b = buf("hello world foo");
+        let mut c = Cursor::at(0);
+        c.move_word_forward(&b);
+        assert_eq!(c.char_idx(), 6); // 'w' of world
+        c.move_word_forward(&b);
+        assert_eq!(c.char_idx(), 12); // 'f' of foo
+    }
+
+    #[test]
+    fn word_forward_from_middle() {
+        let b = buf("hello world");
+        let mut c = Cursor::at(2); // inside "hello"
+        c.move_word_forward(&b);
+        assert_eq!(c.char_idx(), 6);
+    }
+
+    #[test]
+    fn word_forward_handles_punct() {
+        let b = buf("foo.bar baz");
+        let mut c = Cursor::at(0);
+        c.move_word_forward(&b);
+        assert_eq!(c.char_idx(), 3); // '.'
+        c.move_word_forward(&b);
+        assert_eq!(c.char_idx(), 4); // 'b' of bar
+    }
+
+    #[test]
+    fn word_backward_from_middle() {
+        let b = buf("hello world");
+        let mut c = Cursor::at(8); // inside "world"
+        c.move_word_backward(&b);
+        assert_eq!(c.char_idx(), 6); // 'w' of world
+        c.move_word_backward(&b);
+        assert_eq!(c.char_idx(), 0); // 'h' of hello
+    }
+
+    #[test]
+    fn word_end_basic() {
+        let b = buf("hello world");
+        let mut c = Cursor::at(0);
+        c.move_word_end(&b);
+        assert_eq!(c.char_idx(), 4); // 'o' of hello
+        c.move_word_end(&b);
+        assert_eq!(c.char_idx(), 10); // 'd' of world
+    }
+
+    #[test]
+    fn word_end_from_whitespace() {
+        let b = buf("hello world");
+        let mut c = Cursor::at(5); // space
+        c.move_word_end(&b);
+        assert_eq!(c.char_idx(), 10);
+    }
+
+    #[test]
+    fn big_word_skips_punct() {
+        let b = buf("foo.bar baz");
+        let mut c = Cursor::at(0);
+        c.move_word_forward_big(&b);
+        assert_eq!(c.char_idx(), 8); // 'b' of baz
+    }
+    #[test]
+    fn word_end_lands_on_last_char() {
+        let b = buf("lazy dog");
+        let mut c = Cursor::at(3); // 'y' of "lazy"
+        c.move_word_end(&b);
+        assert_eq!(c.char_idx(), 7); // 'g' of "dog"
+        assert_eq!(b.char_at(c.char_idx()), Some('g'));
     }
 }

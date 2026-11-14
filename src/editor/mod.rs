@@ -3,7 +3,9 @@ pub mod buffer;
 pub mod cursor;
 pub mod mode;
 pub mod history;
+pub mod register;
 pub use mode::Mode;
+pub use register::Register;
 
 use thiserror::Error;
 
@@ -27,6 +29,7 @@ pub struct Editor {
     buffer: Buffer,
     cursor: Cursor,
     history: History,
+    register: Register,
     tab_width: usize,
     expand_tab: bool,
 }
@@ -37,6 +40,7 @@ impl Editor {
             buffer: Buffer::new(),
             cursor: Cursor::new(),
             history: History::default(),
+            register: Register::default(),
             tab_width: 4,
             expand_tab: false,
         }
@@ -47,6 +51,7 @@ impl Editor {
             buffer: Buffer::from_str(s),
             cursor: Cursor::new(),
             history: History::default(),
+            register: Register::default(),
             tab_width: 4,
             expand_tab: false,
         }
@@ -57,6 +62,7 @@ impl Editor {
             buffer,
             cursor: Cursor::new(),
             history: History::default(),
+            register: Register::default(),
             tab_width: 4,
             expand_tab: false,
         }
@@ -87,6 +93,10 @@ impl Editor {
         self.expand_tab
     }
 
+    pub fn register(&self) -> &Register {
+        &self.register
+    }
+
     /// Apply an action. Mutates buffer and/or cursor as appropriate.
     /// Apply an action. Mutates buffer and/or cursor as appropriate.
     pub fn apply(&mut self, action: Action) -> Result<(), EditorError> {
@@ -98,6 +108,19 @@ impl Editor {
             Action::MoveDown => self.cursor.move_down(&self.buffer),
             Action::MoveLineStart => self.cursor.move_line_start(&self.buffer),
             Action::MoveLineEnd => self.cursor.move_line_end(&self.buffer),
+            Action::MoveLineEndBlock => {
+                let line = self.cursor.line(&self.buffer);
+                let line_start = self.buffer.line_to_char(line);
+                let line_text = self.buffer.line(line).unwrap_or_default();
+                let char_count = line_text.chars().count();
+                let target = if char_count == 0 {
+                    line_start
+                } else {
+                    line_start + char_count - 1
+                };
+                self.cursor = Cursor::at(target);
+                self.cursor.clamp(&self.buffer);
+            }
             Action::MoveBufferStart => self.cursor.move_buffer_start(&self.buffer),
             Action::MoveBufferEnd => self.cursor.move_buffer_end(&self.buffer),
             Action::MoveLeftLineClamped => {
@@ -206,6 +229,81 @@ impl Editor {
             }
             Action::Undo => self.undo()?,
             Action::Redo => self.redo()?,
+            // ---- word motions ----
+            Action::WordForward => self.cursor.move_word_forward(&self.buffer),
+            Action::WordBackward => self.cursor.move_word_backward(&self.buffer),
+            Action::WordEnd => self.cursor.move_word_end(&self.buffer),
+            Action::WordForwardBig => self.cursor.move_word_forward_big(&self.buffer),
+            Action::WordBackwardBig => self.cursor.move_word_backward_big(&self.buffer),
+            Action::WordEndBig => self.cursor.move_word_end_big(&self.buffer),
+
+            // ---- yank / paste ----
+            Action::YankLine => {
+                let line = self.cursor.line(&self.buffer);
+                let line_start = self.buffer.line_to_char(line);
+                let line_text = self.buffer.line(line).unwrap_or_default();
+                let line_char_count = line_text.chars().count();
+                let line_end = line_start + line_char_count;
+                let mut content = line_text.clone();
+                // Linewise content always ends with '\n' so paste is predictable.
+                content.push('\n');
+                let _ = line_end;
+                self.register.set_linewise(content);
+            }
+            Action::PasteAfter => {
+                if self.register.is_empty() {
+                    return Ok(());
+                }
+                let line = self.cursor.line(&self.buffer);
+                let line_start = self.buffer.line_to_char(line);
+                let line_text = self.buffer.line(line).unwrap_or_default();
+                let line_end = line_start + line_text.chars().count();
+                let buffer_len = self.buffer.len_chars();
+
+                let (insert_at, to_insert, cursor_after) = if line_end < buffer_len {
+                    // There is a '\n' at line_end; insert after it.
+                    (line_end + 1, self.register.content.clone(), line_end + 1)
+                } else {
+                    // Last line: prepend '\n' so the paste starts on a new line.
+                    (
+                        line_end,
+                        format!("\n{}", self.register.content),
+                        line_end + 1,
+                    )
+                };
+
+                let cursor_before = self.cursor.char_idx();
+                self.buffer.insert_str(insert_at, &to_insert)?;
+                self.cursor = Cursor::at(cursor_after);
+                self.cursor.clamp(&self.buffer);
+                self.history.record(Change::insert(
+                    insert_at,
+                    to_insert,
+                    cursor_before,
+                    cursor_after,
+                    ChangeKind::Structural,
+                ));
+            }
+            Action::PasteBefore => {
+                if self.register.is_empty() {
+                    return Ok(());
+                }
+                let line = self.cursor.line(&self.buffer);
+                let line_start = self.buffer.line_to_char(line);
+                let cursor_before = self.cursor.char_idx();
+                let to_insert = self.register.content.clone();
+                let cursor_after = line_start;
+                self.buffer.insert_str(line_start, &to_insert)?;
+                self.cursor = Cursor::at(cursor_after);
+                self.cursor.clamp(&self.buffer);
+                self.history.record(Change::insert(
+                    line_start,
+                    to_insert,
+                    cursor_before,
+                    cursor_after,
+                    ChangeKind::Structural,
+                ));
+            }
         }
         Ok(())
     }
@@ -385,5 +483,70 @@ mod tests {
         e.apply(Action::DeleteBackward).unwrap();
         assert_eq!(e.buffer().as_string(), "abcdef");
         assert_eq!(e.cursor().char_idx(), 3);
+    }
+    #[test]
+    fn yy_p_duplicates_line_below() {
+        let mut e = ed("one\ntwo\nthree");
+        // cursor on line 0
+        e.apply(Action::YankLine).unwrap();
+        e.apply(Action::PasteAfter).unwrap();
+        assert_eq!(e.buffer().as_string(), "one\none\ntwo\nthree");
+        assert_eq!(e.cursor().line(e.buffer()), 1);
+    }
+
+    #[test]
+    fn yy_p_on_last_line_appends_new_line() {
+        let mut e = ed("one\ntwo");
+        e.apply(Action::MoveDown).unwrap();
+        assert_eq!(e.cursor().line(e.buffer()), 1);
+        e.apply(Action::YankLine).unwrap();
+        e.apply(Action::PasteAfter).unwrap();
+        assert_eq!(e.buffer().as_string(), "one\ntwo\ntwo\n");
+        assert_eq!(e.cursor().line(e.buffer()), 2);
+    }
+
+    #[test]
+    fn yy_capital_p_pastes_above() {
+        let mut e = ed("one\ntwo");
+        e.apply(Action::MoveDown).unwrap();
+        e.apply(Action::YankLine).unwrap();
+        e.apply(Action::PasteBefore).unwrap();
+        assert_eq!(e.buffer().as_string(), "one\ntwo\ntwo");
+        assert_eq!(e.cursor().line(e.buffer()), 1);
+    }
+
+    #[test]
+    fn paste_without_yank_is_noop() {
+        let mut e = ed("abc");
+        e.apply(Action::PasteAfter).unwrap();
+        assert_eq!(e.buffer().as_string(), "abc");
+    }
+
+    #[test]
+    fn paste_is_undoable() {
+        let mut e = ed("hello");
+        e.apply(Action::YankLine).unwrap();
+        e.apply(Action::PasteAfter).unwrap();
+        assert_eq!(e.buffer().as_string(), "hello\nhello\n");
+        e.apply(Action::Undo).unwrap();
+        assert_eq!(e.buffer().as_string(), "hello");
+    }
+    #[test]
+    fn move_line_end_block_lands_on_last_char() {
+        let mut e = ed("abc\ndef");
+        e.apply(Action::MoveLineEndBlock).unwrap();
+        assert_eq!(e.cursor().char_idx(), 2); // 'c'
+        e.apply(Action::MoveDown).unwrap();
+        e.apply(Action::MoveLineEndBlock).unwrap();
+        assert_eq!(e.cursor().char_idx(), 6); // 'f'
+    }
+
+    #[test]
+    fn move_line_end_block_on_empty_line() {
+        let mut e = ed("abc\n\ndef");
+        e.apply(Action::MoveDown).unwrap(); // to empty line
+        e.apply(Action::MoveLineEndBlock).unwrap();
+        // cursor stays at line start
+        assert_eq!(e.cursor().char_idx(), 4);
     }
 }

@@ -24,6 +24,21 @@ pub enum Action {
     Redo,
 
     InsertTab,
+
+    // word motions
+    WordForward,
+    WordBackward,
+    WordEnd,
+    WordForwardBig,
+    WordBackwardBig,
+    WordEndBig,
+
+    // yank / paste
+    YankLine,
+    PasteAfter,
+    PasteBefore,
+
+    MoveLineEndBlock,
 }
 
 impl Action {
@@ -31,13 +46,15 @@ impl Action {
         matches!(
             self,
             Action::InsertChar(_)
-                | Action::InsertNewline
-                | Action::InsertTab
-                | Action::DeleteBackward
-                | Action::DeleteForward
-                | Action::DeleteLine
-                | Action::Undo
-                | Action::Redo
+            | Action::InsertNewline
+            | Action::InsertTab
+            | Action::DeleteBackward
+            | Action::DeleteForward
+            | Action::DeleteLine
+            | Action::PasteAfter
+            | Action::PasteBefore
+            | Action::Undo
+            | Action::Redo
         )
     }
 }
