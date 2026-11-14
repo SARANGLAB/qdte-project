@@ -14,7 +14,6 @@ use qdte::terminal::TerminalGuard;
 fn main() -> ExitCode {
     let args = cli::args::parse();
 
-    // 1. Tangani command `tutor` dan `vi-tutor`
     if let Some(path) = &args.cli.file {
         if let Some(name) = path.to_str() {
             if name == "tutor" {
@@ -27,18 +26,15 @@ fn main() -> ExitCode {
         }
     }
 
-    // 2. Load config
     let (mut config, warning) = Config::load();
     if let Some(w) = warning {
         eprintln!("qdte: {}", w);
     }
 
-    // 3. First-run setup
     if Config::path().map_or(false, |p| !p.exists()) {
         run_setup(&mut config);
     }
 
-    // 4. Load file / Init App
     let mut app = match args.cli.file {
         Some(path) => {
             if path.is_dir() {
@@ -169,11 +165,26 @@ fn run(app: &mut App, vim: bool, config: &Config) -> std::io::Result<()> {
 
         let key = read_key()?;
 
+        // 1. Handle Theme Picker input
+        if app.theme_picker.is_some() {
+            use crossterm::event::KeyCode;
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => app.theme_picker_up(),
+                KeyCode::Down | KeyCode::Char('j') => app.theme_picker_down(),
+                KeyCode::Enter => app.theme_picker_select(),
+                KeyCode::Esc => app.close_theme_picker(),
+                _ => {}
+            }
+            continue;
+        }
+
+        // 2. Handle Prompt input
         if app.prompt.is_some() {
             handle_prompt_key(app, key);
             continue;
         }
 
+        // 3. Handle Editor input
         let Some(cmd) = dispatcher.resolve(app.mode, key) else {
             continue;
         };
@@ -359,6 +370,11 @@ fn dispatch_command(app: &mut App, cmd: Command, quit_armed: &mut bool) -> bool 
         Command::ClearSearch => {
             app.search = None;
             app.message = None;
+            *quit_armed = false;
+            false
+        }
+        Command::OpenThemePicker => {
+            app.open_theme_picker();
             *quit_armed = false;
             false
         }

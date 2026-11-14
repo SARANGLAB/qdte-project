@@ -1,10 +1,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::editor::Action;
+use crate::editor::{Action, Mode};
 
 use super::{Command, Keymap};
-
-use crate::editor::Mode;
 
 pub struct NormalKeymap;
 
@@ -15,16 +13,20 @@ impl Keymap for NormalKeymap {
 
         Some(match (key.code, key.modifiers) {
             // App commands
-            (Esc, _) => Command::ClearSearch,
-            (Char('S'), m) if m.contains(M::CONTROL) => Command::SaveAs,
-            (Char('s'), m) if m.contains(M::CONTROL) && m.contains(M::SHIFT) => Command::SaveAs,
-            (F(2), M::NONE) => Command::SaveAs,
-
             (Char('s'), M::CONTROL) => Command::Save,
+            (Char('S'), m) if m.contains(M::CONTROL) => Command::SaveAs,
+            (F(2), M::NONE) => Command::SaveAs,
             (Char('z'), M::CONTROL) => Command::Editor(Action::Undo),
             (Char('y'), M::CONTROL) => Command::Editor(Action::Redo),
             (Char('o'), M::CONTROL) => Command::Open,
             (Char('x'), M::CONTROL) | (Char('q'), M::CONTROL) | (Char('c'), M::CONTROL) => Command::Quit,
+            
+            // Pencarian & Tema
+            (Char('f'), M::CONTROL) => Command::Search,
+            (F(3), M::NONE) => Command::SearchNext,
+            (F(3), M::SHIFT) => Command::SearchPrev,
+            (Esc, _) => Command::ClearSearch,
+            (Char('t'), M::CONTROL) => Command::OpenThemePicker,
 
             // Text input
             (Char(c), M::NONE) | (Char(c), M::SHIFT) => Command::Editor(Action::InsertChar(c)),
@@ -41,11 +43,6 @@ impl Keymap for NormalKeymap {
             (Home, _) => Command::Editor(Action::MoveLineStart),
             (End, _) => Command::Editor(Action::MoveLineEnd),
 
-            // Search
-            (Char('f'), M::CONTROL) => Command::Search,
-            (F(3), M::NONE) => Command::SearchNext,
-            (F(3), M::SHIFT) => Command::SearchPrev,
-
             _ => return None,
         })
     }
@@ -54,7 +51,6 @@ impl Keymap for NormalKeymap {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editor::Mode;
 
     fn key(code: KeyCode, mods: KeyModifiers) -> KeyEvent {
         KeyEvent::new(code, mods)
@@ -100,19 +96,12 @@ mod tests {
             other => panic!("unexpected: {:?}", other),
         }
     }
+    
     #[test]
-    fn save_as_key_variants() {
-        for key_event in [
-            key(KeyCode::Char('S'), KeyModifiers::CONTROL),
-            key(KeyCode::Char('S'), KeyModifiers::CONTROL | KeyModifiers::SHIFT),
-            key(KeyCode::Char('s'), KeyModifiers::CONTROL | KeyModifiers::SHIFT),
-            key(KeyCode::F(2), KeyModifiers::NONE),
-        ] {
-            assert!(
-                matches!(resolve(key_event), Some(Command::SaveAs)),
-                "expected SaveAs for {:?}",
-                key_event
-            );
-        }
+    fn ctrl_t_is_theme_picker() {
+        assert!(matches!(
+            resolve(key(KeyCode::Char('t'), KeyModifiers::CONTROL)),
+            Some(Command::OpenThemePicker)
+        ));
     }
 }

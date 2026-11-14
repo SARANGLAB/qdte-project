@@ -16,6 +16,7 @@ pub struct Config {
     pub expand_tab: bool,
     pub fixeol: bool,
     pub keymap: Option<KeymapKind>,
+    pub theme: Option<String>,
 }
 
 impl Default for Config {
@@ -25,6 +26,7 @@ impl Default for Config {
             expand_tab: false,
             fixeol: false,
             keymap: None,
+            theme: None,
         }
     }
 }
