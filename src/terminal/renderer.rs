@@ -77,9 +77,39 @@ impl Renderer {
             ResetColor,
         )?;
 
-        let cx = (cursor_visual_col.saturating_sub(self.left_col) as u16)
-            .min(cols.saturating_sub(1) as u16);
-        let cy = cursor_line.saturating_sub(self.top_line) as u16;
+        let (cx, cy) = if let Some(prompt) = &app.prompt {
+            let prompt_line = format_prompt(prompt, cols);
+            queue!(
+                stdout,
+                MoveTo(0, content_height as u16),
+                SetBackgroundColor(Color::Blue),
+                SetForegroundColor(Color::White),
+                Print(prompt_line),
+                ResetColor,
+            )?;
+
+            let prefix = format!("[{}] ", prompt.kind.label());
+            let prefix_w = UnicodeWidthStr::width(prefix.as_str());
+            let input_before: String = prompt.input.chars().take(prompt.cursor).collect();
+            let input_w = UnicodeWidthStr::width(input_before.as_str());
+            let cx = ((prefix_w + input_w).min(cols.saturating_sub(1))) as u16;
+            (cx, content_height as u16)
+        } else {
+            let status = format_status(app, mode_label, cols);
+            queue!(
+                stdout,
+                MoveTo(0, content_height as u16),
+                SetBackgroundColor(Color::DarkGrey),
+                SetForegroundColor(Color::White),
+                Print(status),
+                ResetColor,
+            )?;
+
+            let cx = (cursor_visual_col.saturating_sub(self.left_col) as u16)
+                .min(cols.saturating_sub(1) as u16);
+            let cy = cursor_line.saturating_sub(self.top_line) as u16;
+            (cx, cy)
+        };
         queue!(stdout, MoveTo(cx, cy))?;
 
         stdout.flush()?;
@@ -130,6 +160,34 @@ pub(crate) fn visual_col(line_text: &str, grapheme_count: usize, tab_width: usiz
         }
     }
     w
+}
+
+fn format_prompt(prompt: &crate::app::Prompt, width: usize) -> String {
+    let prefix = format!("[{}] ", prompt.kind.label());
+    let mut line = String::new();
+    line.push_str(&prefix);
+    line.push_str(&prompt.input);
+    if let Some(note) = &prompt.note {
+        line.push_str("  ");
+        line.push_str(note);
+    }
+
+    // Truncate to width.
+    let mut out = String::new();
+    let mut w = 0usize;
+    for g in line.graphemes(true) {
+        let gw = UnicodeWidthStr::width(g);
+        if w + gw > width {
+            break;
+        }
+        out.push_str(g);
+        w += gw;
+    }
+    while w < width {
+        out.push(' ');
+        w += 1;
+    }
+    out
 }
 
 /// Render a single line as a printable string, honoring left scroll offset
@@ -318,4 +376,23 @@ mod tests {
         // tab_width = 8: 'a' + 7 spaces + 'b'
         assert_eq!(render_line(&b, 0, 0, 80, 8), "a       b");
     }
+}
+
+#[test]
+fn format_prompt_basic() {
+    use crate::app::{Prompt, PromptKind};
+    let p = Prompt::new(PromptKind::Open, "hello".to_string());
+    let s = format_prompt(&p, 20);
+    assert!(s.starts_with("[Open] hello"));
+    assert_eq!(s.chars().count(), 20); // padded to full width
+}
+
+#[test]
+fn format_prompt_with_note() {
+    use crate::app::{Prompt, PromptKind};
+    let mut p = Prompt::new(PromptKind::SaveAs, "out.txt".to_string());
+    p.note = Some("save failed".to_string());
+    let s = format_prompt(&p, 40);
+    assert!(s.contains("save failed"));
+    assert_eq!(s.chars().count(), 40);
 }

@@ -15,12 +15,15 @@ impl Keymap for NormalKeymap {
 
         Some(match (key.code, key.modifiers) {
             // App commands
+            (Char('S'), m) if m.contains(M::CONTROL) => Command::SaveAs,
+            (Char('s'), m) if m.contains(M::CONTROL) && m.contains(M::SHIFT) => Command::SaveAs,
+            (F(2), M::NONE) => Command::SaveAs,
+
             (Char('s'), M::CONTROL) => Command::Save,
             (Char('z'), M::CONTROL) => Command::Editor(Action::Undo),
             (Char('y'), M::CONTROL) => Command::Editor(Action::Redo),
-            (Char('x'), M::CONTROL) => Command::Quit,
-            (Char('q'), M::CONTROL) => Command::Quit,
-            (Char('c'), M::CONTROL) => Command::Quit,
+            (Char('o'), M::CONTROL) => Command::Open,
+            (Char('x'), M::CONTROL) | (Char('q'), M::CONTROL) | (Char('c'), M::CONTROL) => Command::Quit,
 
             // Text input
             (Char(c), M::NONE) | (Char(c), M::SHIFT) => Command::Editor(Action::InsertChar(c)),
@@ -89,6 +92,21 @@ mod tests {
         match resolve(key(KeyCode::Tab, KeyModifiers::NONE)) {
             Some(Command::Editor(Action::InsertTab)) => {}
             other => panic!("unexpected: {:?}", other),
+        }
+    }
+    #[test]
+    fn save_as_key_variants() {
+        for key_event in [
+            key(KeyCode::Char('S'), KeyModifiers::CONTROL),
+            key(KeyCode::Char('S'), KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+            key(KeyCode::Char('s'), KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+            key(KeyCode::F(2), KeyModifiers::NONE),
+        ] {
+            assert!(
+                matches!(resolve(key_event), Some(Command::SaveAs)),
+                "expected SaveAs for {:?}",
+                key_event
+            );
         }
     }
 }

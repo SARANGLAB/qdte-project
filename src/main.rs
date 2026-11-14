@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use qdte::app::App;
+use qdte::app::{App, PromptKind};
 use qdte::cli::args::Invocation;
 use qdte::cli;
 use qdte::config::{Config, KeymapKind};
@@ -60,6 +60,12 @@ fn run(app: &mut App, vim: bool, config: &Config) -> std::io::Result<()> {
         renderer.render(app, mode_label)?;
 
         let key = read_key()?;
+
+        if app.prompt.is_some() {
+            handle_prompt_key(app, key);
+            continue;
+        }
+
         let Some(cmd) = dispatcher.resolve(app.mode, key) else {
             continue;
         };
@@ -69,6 +75,51 @@ fn run(app: &mut App, vim: bool, config: &Config) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn handle_prompt_key(app: &mut App, key: crossterm::event::KeyEvent) {
+    use crossterm::event::{KeyCode, KeyModifiers};
+
+    match (key.code, key.modifiers) {
+        (KeyCode::Esc, _) => app.cancel_prompt(),
+        (KeyCode::Enter, _) => app.confirm_prompt(),
+        (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
+            if let Some(prompt) = app.prompt.as_mut() {
+                prompt.insert_char(c);
+            }
+        }
+        (KeyCode::Backspace, _) => {
+            if let Some(prompt) = app.prompt.as_mut() {
+                prompt.backspace();
+            }
+        }
+        (KeyCode::Delete, _) => {
+            if let Some(prompt) = app.prompt.as_mut() {
+                prompt.delete();
+            }
+        }
+        (KeyCode::Left, _) => {
+            if let Some(prompt) = app.prompt.as_mut() {
+                prompt.move_left();
+            }
+        }
+        (KeyCode::Right, _) => {
+            if let Some(prompt) = app.prompt.as_mut() {
+                prompt.move_right();
+            }
+        }
+        (KeyCode::Home, _) => {
+            if let Some(prompt) = app.prompt.as_mut() {
+                prompt.move_home();
+            }
+        }
+        (KeyCode::End, _) => {
+            if let Some(prompt) = app.prompt.as_mut() {
+                prompt.move_end();
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Returns true if the app should quit.
@@ -112,6 +163,16 @@ fn dispatch_command(app: &mut App, cmd: Command, quit_armed: &mut bool) -> bool 
             } else {
                 true
             }
+        }
+        Command::Open => {
+            app.open_prompt(PromptKind::Open);
+            *quit_armed = false;
+            false
+        }
+        Command::SaveAs => {
+            app.open_prompt(PromptKind::SaveAs);
+            *quit_armed = false;
+            false
         }
     }
 }

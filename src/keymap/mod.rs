@@ -13,6 +13,8 @@ pub enum Command {
     Seq(Vec<Command>),
     SetMode(Mode),
     Save,
+    SaveAs,
+    Open,
     Quit,
 }
 

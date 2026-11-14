@@ -48,7 +48,13 @@ impl VimKeymap {
 
         // Global shortcuts
         match (key.code, key.modifiers) {
+            (Char('S'), m) if m.contains(M::CONTROL) => return Some(Command::SaveAs),
+            (Char('s'), m) if m.contains(M::CONTROL) && m.contains(M::SHIFT) => {
+                return Some(Command::SaveAs);
+            }
+            (F(2), M::NONE) => return Some(Command::SaveAs),
             (Char('s'), M::CONTROL) => return Some(Command::Save),
+            (Char('o'), M::CONTROL) => return Some(Command::Open),
             (Char('x'), M::CONTROL) | (Char('q'), M::CONTROL) | (Char('c'), M::CONTROL) => {
                 return Some(Command::Quit);
             }
