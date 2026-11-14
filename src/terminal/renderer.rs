@@ -6,11 +6,13 @@ use crossterm::{
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     terminal::{self, Clear, ClearType},
 };
+use syntect::easy::HighlightLines;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::App;
 use crate::editor::buffer::Buffer;
+use crate::terminal::highlight::{get_syntax_for_path, TS, PS};
 
 pub struct Renderer {
     top_line: usize,
@@ -48,10 +50,9 @@ impl Renderer {
         let buffer = app.editor.buffer();
         let cursor = app.editor.cursor();
 
-        // Hitung lebar gutter (kolom nomor baris)
         let total_lines = buffer.len_lines();
         let num_width = total_lines.max(1).to_string().len();
-        let gutter_width = num_width + 1; // 1 spasi setelah angka
+        let gutter_width = num_width + 1;
         let text_width = cols.saturating_sub(gutter_width).max(1);
 
         let cursor_line = cursor.line(buffer);
@@ -64,8 +65,20 @@ impl Renderer {
         self.adjust_scroll(cursor_line, cursor_visual_col, content_height, text_width);
 
         let mut stdout = io::stdout();
-
         queue!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
+
+        // Setup Syntax Highlighter
+        let syntax = get_syntax_for_path(app.path.as_deref());
+        let theme = &TS.themes["base16-ocean.dark"];
+        let mut highlighter = HighlightLines::new(syntax, theme);
+
+        // Fast-forward highlighter state to the top of the viewport
+        for i in 0..self.top_line {
+            if let Some(line) = buffer.line(i) {
+                let line_nl = format!("{}\n", line);
+                let _ = highlighter.highlight_line(&line_nl, &PS);
+            }
+        }
 
         for row in 0..content_height {
             let line_idx = self.top_line + row;
@@ -81,12 +94,17 @@ impl Renderer {
                     ResetColor,
                 )?;
 
-                // 2. Siapkan rentang seleksi & pencarian
+                // 2. Highlight baris ini
+                let line_text = buffer.line(line_idx).unwrap_or_default();
+                let line_nl = format!("{}\n", line_text);
+                let spans = highlighter.highlight_line(&line_nl, &PS).unwrap_or_default();
+
+                // 3. Siapkan seleksi & pencarian
                 let sel = app.visual_range();
                 let (char_range, full_line) = if let Some((s, e, lw)) = sel {
                     if lw {
                         let line_start = buffer.line_to_char(line_idx);
-                        let line_end = line_start + buffer.line(line_idx).unwrap_or_default().chars().count();
+                        let line_end = line_start + line_text.chars().count();
                         (Some((line_start, line_end)), s <= line_start && line_end <= e)
                     } else {
                         (Some((s, e)), false)
@@ -98,7 +116,7 @@ impl Renderer {
                 let mut search_ranges = Vec::new();
                 if let Some(search) = &app.search {
                     let line_start = buffer.line_to_char(line_idx);
-                    let line_end = line_start + buffer.line(line_idx).unwrap_or_default().chars().count();
+                    let line_end = line_start + line_text.chars().count();
 
                     for (i, m) in search.matches.iter().enumerate() {
                         if m.start >= line_start && m.start < line_end {
@@ -108,8 +126,8 @@ impl Renderer {
                     }
                 }
 
-                // 3. Gambar teks baris
-                let rendered = render_line_with_selection(
+                // 4. Render teks dengan syntax highlight
+                let rendered = render_line_highlighted(
                     buffer,
                     line_idx,
                     self.left_col,
@@ -118,6 +136,7 @@ impl Renderer {
                     char_range,
                     full_line,
                     &search_ranges,
+                    &spans,
                 );
                 if !rendered.is_empty() {
                     queue!(stdout, Print(rendered))?;
@@ -134,7 +153,7 @@ impl Renderer {
             }
         }
 
-        // 4. Gambar prompt ATAU status bar, lalu posisikan kursor
+        // 5. Status Bar / Prompt
         let (cx, cy, use_block) = if let Some(prompt) = &app.prompt {
             let prompt_line = format_prompt(prompt, cols);
             queue!(
@@ -163,7 +182,6 @@ impl Renderer {
                 ResetColor,
             )?;
 
-            // Offset kursor X ditambah lebar gutter
             let cx = (gutter_width + cursor_visual_col.saturating_sub(self.left_col) as usize)
                 .min(cols.saturating_sub(1)) as u16;
             let cy = cursor_line.saturating_sub(self.top_line) as u16;
@@ -219,7 +237,11 @@ pub(crate) fn visual_col(line_text: &str, grapheme_count: usize, tab_width: usiz
     w
 }
 
-pub(crate) fn render_line_with_selection(
+fn ansi_fg(c: syntect::highlighting::Color) -> String {
+    format!("\x1b[38;2;{};{};{}m", c.r, c.g, c.b)
+}
+
+pub(crate) fn render_line_highlighted(
     buffer: &Buffer,
     line_idx: usize,
     left_col: usize,
@@ -228,90 +250,106 @@ pub(crate) fn render_line_with_selection(
     selection: Option<(usize, usize)>,
     full_line: bool,
     search_ranges: &[(usize, usize, bool)],
+    spans: &[(syntect::highlighting::Style, &str)]
 ) -> String {
-    let text = buffer.line(line_idx).unwrap_or_default();
     let line_start = buffer.line_to_char(line_idx);
-
     let mut out = String::new();
     let mut visual = 0usize;
     let mut emitted = 0usize;
     let mut char_offset = 0usize;
+
+    // State untuk menghindari penulisan escape code berulang kali
     let mut current_style = StyleState::Normal;
+    let mut current_fg = String::from("\x1b[39m"); // Default fg
 
-    for g in text.graphemes(true) {
-        let gw = if g == "\t" {
-            tab_width - (visual % tab_width)
-        } else {
-            UnicodeWidthStr::width(g)
-        };
+    for (syn_style, text) in spans {
+        let syn_fg = ansi_fg(syn_style.foreground);
 
-        let abs_pos = line_start + char_offset;
+        for g in text.graphemes(true) {
+            if g == "\n" {
+                continue; // Abaikan newline yang ditambahkan syntect
+            }
 
-        let is_selected = if full_line {
-            true
-        } else if let Some((s, e)) = selection {
-            abs_pos >= s && abs_pos < e
-        } else {
-            false
-        };
+            let gw = if g == "\t" {
+                tab_width - (visual % tab_width)
+            } else {
+                UnicodeWidthStr::width(g)
+            };
 
-        let mut is_search = false;
-        let mut is_active_search = false;
-        for &(s, e, active) in search_ranges {
-            if abs_pos >= s && abs_pos < e {
-                if active {
-                    is_active_search = true;
-                } else {
-                    is_search = true;
+            let abs_pos = line_start + char_offset;
+
+            let is_selected = if full_line {
+                true
+            } else if let Some((s, e)) = selection {
+                abs_pos >= s && abs_pos < e
+            } else {
+                false
+            };
+
+            let mut is_search = false;
+            let mut is_active_search = false;
+            for &(s, e, active) in search_ranges {
+                if abs_pos >= s && abs_pos < e {
+                    if active {
+                        is_active_search = true;
+                    } else {
+                        is_search = true;
+                    }
+                    break;
                 }
+            }
+
+            let new_style = if is_active_search {
+                StyleState::ActiveSearch
+            } else if is_search {
+                StyleState::Search
+            } else if is_selected {
+                StyleState::Selection
+            } else {
+                StyleState::Normal
+            };
+
+            // Terapkan style jika berbeda dengan karakter sebelumnya
+            if new_style != current_style || syn_fg != current_fg {
+                out.push_str("\x1b[0m"); // Reset semua atribut
+                match new_style {
+                    StyleState::Normal => out.push_str(&syn_fg),
+                    StyleState::Selection => {
+                        out.push_str(&syn_fg);
+                        out.push_str("\x1b[7m"); // Reverse video
+                    }
+                    StyleState::Search => out.push_str("\x1b[43;30m"), // Yellow BG, Black FG
+                    StyleState::ActiveSearch => out.push_str("\x1b[103;30m"), // Bright Yellow BG, Black FG
+                }
+                current_style = new_style;
+                current_fg = syn_fg.clone();
+            }
+
+            if visual + gw <= left_col {
+                visual += gw;
+                char_offset += g.chars().count();
+                continue;
+            }
+            if emitted + gw > max_width {
                 break;
             }
-        }
 
-        let new_style = if is_active_search {
-            StyleState::ActiveSearch
-        } else if is_search {
-            StyleState::Search
-        } else if is_selected {
-            StyleState::Selection
-        } else {
-            StyleState::Normal
-        };
-
-        if new_style != current_style {
-            match new_style {
-                StyleState::Normal => out.push_str("\x1b[0m"),
-                StyleState::Search => out.push_str("\x1b[43;30m"),
-                StyleState::ActiveSearch => out.push_str("\x1b[103;30m"),
-                StyleState::Selection => out.push_str("\x1b[7m"),
+            if visual < left_col {
+                let skip = left_col - visual;
+                out.push_str(&" ".repeat(gw - skip));
+            } else if g == "\t" {
+                out.push_str(&" ".repeat(gw));
+            } else {
+                out.push_str(g);
             }
-            current_style = new_style;
-        }
 
-        if visual + gw <= left_col {
+            emitted += gw;
             visual += gw;
             char_offset += g.chars().count();
-            continue;
         }
-        if emitted + gw > max_width {
-            break;
-        }
-
-        if visual < left_col {
-            let skip = left_col - visual;
-            out.push_str(&" ".repeat(gw - skip));
-        } else if g == "\t" {
-            out.push_str(&" ".repeat(gw));
-        } else {
-            out.push_str(g);
-        }
-
-        emitted += gw;
-        visual += gw;
-        char_offset += g.chars().count();
     }
 
-    if current_style != StyleState::Normal {
+    if current_style != StyleState::Normal || current_fg != "\x1b[39m" {
         out.push_str("\x1b[0m");
     }
 
@@ -390,4 +428,66 @@ fn format_status(app: &App, mode_label: &str, width: usize) -> String {
     s.push_str(&" ".repeat(pad));
     s.push_str(&pos);
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TAB_WIDTH: usize = 4;
+
+    fn buf(s: &str) -> Buffer {
+        Buffer::from_str(s)
+    }
+
+    #[test]
+    fn visual_col_empty() {
+        assert_eq!(visual_col("", 0, TAB_WIDTH), 0);
+    }
+
+    #[test]
+    fn visual_col_ascii() {
+        assert_eq!(visual_col("abc", 0, TAB_WIDTH), 0);
+        assert_eq!(visual_col("abc", 1, TAB_WIDTH), 1);
+        assert_eq!(visual_col("abc", 3, TAB_WIDTH), 3);
+    }
+
+    #[test]
+    fn visual_col_tab_expanded() {
+        assert_eq!(visual_col("a\t", 2, TAB_WIDTH), 4);
+    }
+
+    #[test]
+    fn visual_col_wide_char() {
+        assert_eq!(visual_col("日本語", 1, TAB_WIDTH), 2);
+        assert_eq!(visual_col("日本語", 2, TAB_WIDTH), 4);
+    }
+
+    #[test]
+    fn visual_col_custom_tab_width() {
+        assert_eq!(visual_col("a\t", 2, 8), 8);
+    }
+
+    // Note: Tests for render_line_highlighted would require constructing syntect Spans.
+    // Since that's complex, we'll rely on manual testing for the full render path,
+    // and keep the basic helper tests.
+
+    #[test]
+    fn format_prompt_basic() {
+        use crate::app::{Prompt, PromptKind};
+        let p = Prompt::new(PromptKind::Open, "hello".to_string());
+        let s = format_prompt(&p, 20);
+        assert!(s.starts_with("[Open] hello"));
+        assert_eq!(s.chars().count(), 20);
+    }
+
+    #[test]
+    fn format_prompt_with_note() {
+        use crate::app::{Prompt, PromptKind};
+        let mut p = Prompt::new(PromptKind::SaveAs, "out.txt".to_string());
+        p.note = Some("save failed".to_string());
+        let s = format_prompt(&p, 40);
+        assert!(s.contains("save failed"));
+        assert_eq!(s.chars().count(), 40);
+    }
 }
