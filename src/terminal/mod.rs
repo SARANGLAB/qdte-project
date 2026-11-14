@@ -1,5 +1,6 @@
 pub mod input;
 pub mod renderer;
+pub mod highlight;
 
 use std::io::{self, stdout};
 

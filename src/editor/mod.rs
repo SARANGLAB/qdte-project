@@ -8,6 +8,7 @@ pub use mode::Mode;
 pub use register::Register;
 
 use thiserror::Error;
+use std::cell::RefCell; 
 
 pub use action::Action;
 pub use buffer::{Buffer, BufferError};
@@ -32,6 +33,7 @@ pub struct Editor {
     register: Register,
     tab_width: usize,
     expand_tab: bool,
+    cached_hash: RefCell<Option<u64>>,
 }
 
 impl Editor {
@@ -43,7 +45,20 @@ impl Editor {
             register: Register::default(),
             tab_width: 4,
             expand_tab: false,
+            cached_hash: RefCell::new(None),
         }
+    }
+
+    pub fn hash(&self) -> u64 {
+        if let Some(h) = *self.cached_hash.borrow() {
+            return h;
+        }
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        use std::hash::{Hash, Hasher};
+        self.buffer.as_string().hash(&mut hasher);
+        let h = hasher.finish();
+        *self.cached_hash.borrow_mut() = Some(h);
+        h
     }
 
     pub fn from_str(s: &str) -> Self {
@@ -54,6 +69,7 @@ impl Editor {
             register: Register::default(),
             tab_width: 4,
             expand_tab: false,
+            cached_hash: RefCell::new(None), // <-- Diperbaiki
         }
     }
 
@@ -65,6 +81,7 @@ impl Editor {
             register: Register::default(),
             tab_width: 4,
             expand_tab: false,
+            cached_hash: RefCell::new(None), // <-- Diperbaiki
         }
     }
 
@@ -102,7 +119,6 @@ impl Editor {
         self.cursor.clamp(&self.buffer);
     }
 
-    /// Apply an action. Mutates buffer and/or cursor as appropriate.
     /// Apply an action. Mutates buffer and/or cursor as appropriate.
     pub fn apply(&mut self, action: Action) -> Result<(), EditorError> {
         match action {
@@ -381,6 +397,7 @@ impl Editor {
                 }
             }
         }
+        *self.cached_hash.borrow_mut() = None;
         Ok(())
     }
     pub fn undo(&mut self) -> Result<(), EditorError> {
@@ -397,6 +414,7 @@ impl Editor {
         self.cursor = Cursor::at(change.cursor_before);
         self.cursor.clamp(&self.buffer);
         self.history.push_redo(change);
+        *self.cached_hash.borrow_mut() = None; // <-- Diperbaiki
         Ok(())
     }
     pub fn redo(&mut self) -> Result<(), EditorError> {
@@ -413,6 +431,7 @@ impl Editor {
         self.cursor = Cursor::at(change.cursor_after);
         self.cursor.clamp(&self.buffer);
         self.history.push_undo(change);
+        *self.cached_hash.borrow_mut() = None; // <-- Diperbaiki
         Ok(())
     }
 }
@@ -549,6 +568,7 @@ mod tests {
         e.apply(Action::MoveBufferStart).unwrap();
         assert_eq!(e.cursor().char_idx(), 0);
     }
+    
     #[test]
     fn backspace_after_move_to_line_start_joins_lines() {
         let mut e = ed("abc\ndef");
@@ -560,6 +580,7 @@ mod tests {
         assert_eq!(e.buffer().as_string(), "abcdef");
         assert_eq!(e.cursor().char_idx(), 3);
     }
+    
     #[test]
     fn yy_p_duplicates_line_below() {
         let mut e = ed("one\ntwo\nthree");
@@ -607,6 +628,7 @@ mod tests {
         e.apply(Action::Undo).unwrap();
         assert_eq!(e.buffer().as_string(), "hello");
     }
+    
     #[test]
     fn move_line_end_block_lands_on_last_char() {
         let mut e = ed("abc\ndef");
@@ -625,6 +647,7 @@ mod tests {
         // cursor stays at line start
         assert_eq!(e.cursor().char_idx(), 4);
     }
+    
     #[test]
     fn delete_range_removes_chars() {
         let mut e = ed("hello world");

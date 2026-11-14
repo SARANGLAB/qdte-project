@@ -7,6 +7,7 @@ use thiserror::Error;
 use crate::config::Config;
 use crate::editor::{Action, Editor, EditorError, Mode};
 use crate::io::{self, IoError, LineEnding};
+use crate::theme::ThemeManager;
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -58,6 +59,12 @@ pub struct SearchState {
     pub query: String,
     pub matches: Vec<SearchMatch>,
     pub current_idx: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct ThemePickerState {
+    pub themes: Vec<String>,
+    pub selected_idx: usize,
 }
 
 impl Prompt {
@@ -145,6 +152,8 @@ pub struct App {
     pub should_quit: bool,
     pub search: Option<SearchState>,
     pub cursor_before_search: Option<usize>,
+    pub theme_manager: ThemeManager,
+    pub theme_picker: Option<ThemePickerState>,
     saved_hash: Option<u64>,
 }
 
@@ -153,6 +162,8 @@ impl App {
         let mut editor = Editor::new();
         editor.set_tab_config(config.tab_width, config.expand_tab);
         let saved_hash = Some(hash_str(&editor.buffer().as_string()));
+        let theme_manager = ThemeManager::load(config.theme.as_deref());
+        
         Self {
             editor,
             path: None,
@@ -166,6 +177,8 @@ impl App {
             should_quit: false,
             search: None,
             cursor_before_search: None,
+            theme_manager,
+            theme_picker: None,
             saved_hash,
         }
     }
@@ -175,6 +188,8 @@ impl App {
         let mut editor = Editor::from_str(&loaded.content);
         editor.set_tab_config(config.tab_width, config.expand_tab);
         let saved_hash = Some(hash_str(&editor.buffer().as_string()));
+        let theme_manager = ThemeManager::load(config.theme.as_deref());
+        
         Ok(Self {
             editor,
             path: Some(path),
@@ -188,13 +203,15 @@ impl App {
             should_quit: false,
             search: None,
             cursor_before_search: None,
+            theme_manager,
+            theme_picker: None,
             saved_hash,
         })
     }
 
     pub fn is_dirty(&self) -> bool {
         match self.saved_hash {
-            Some(saved) => saved != hash_str(&self.editor.buffer().as_string()),
+            Some(saved) => saved != self.editor.hash(),
             None => self.editor.buffer().len_chars() > 0,
         }
     }
@@ -232,7 +249,6 @@ impl App {
             prompt.note = Some("unsaved changes will be lost".to_string());
         }
         
-        // Simpan posisi kursor sebelum mulai mencari
         if kind == PromptKind::Search {
             self.cursor_before_search = Some(self.editor.cursor().char_idx());
         }
@@ -243,7 +259,6 @@ impl App {
     pub fn cancel_prompt(&mut self) {
         if let Some(prompt) = &self.prompt {
             if prompt.kind == PromptKind::Search {
-                // Kembalikan kursor ke posisi semula
                 if let Some(c) = self.cursor_before_search {
                     self.editor.set_cursor(c);
                 }
@@ -353,7 +368,7 @@ impl App {
                 self.execute_command(&path_str);
             }
             PromptKind::Search => {
-                self.cursor_before_search = None; // Pencarian dikonfirmasi
+                self.cursor_before_search = None; 
                 self.execute_search(&path_str);
                 if self.search.is_none() {
                     self.message = Some(format!("pattern not found: {}", path_str));
@@ -361,6 +376,61 @@ impl App {
             }
         }
     }
+
+    pub fn set_theme(&mut self, name: &str) -> Result<(), String> {
+        self.theme_manager.set_by_name(name)?;
+        self.config.theme = Some(self.theme_manager.active().name.clone());
+        if let Err(e) = self.config.save_default() {
+            self.message = Some(format!("warning: could not persist theme: {}", e));
+        }
+        self.message = Some(format!("theme: {}", self.theme_manager.active().name));
+        Ok(())
+    }
+
+    pub fn list_themes(&self) -> Vec<&str> {
+        self.theme_manager.list_names()
+    }
+
+    // --- THEME PICKER METHODS ---
+    pub fn open_theme_picker(&mut self) {
+        let themes: Vec<String> = self.theme_manager.list_names().iter().map(|s| s.to_string()).collect();
+        let selected_idx = themes.iter().position(|t| t == self.theme_manager.active().name.as_str()).unwrap_or(0);
+        self.theme_picker = Some(ThemePickerState { themes, selected_idx });
+        self.message = None;
+    }
+
+    pub fn close_theme_picker(&mut self) {
+        self.theme_picker = None;
+    }
+
+    pub fn theme_picker_up(&mut self) {
+        if let Some(picker) = self.theme_picker.as_mut() {
+            if picker.selected_idx > 0 {
+                picker.selected_idx -= 1;
+            } else {
+                picker.selected_idx = picker.themes.len().saturating_sub(1);
+            }
+        }
+    }
+
+    pub fn theme_picker_down(&mut self) {
+        if let Some(picker) = self.theme_picker.as_mut() {
+            if picker.selected_idx + 1 < picker.themes.len() {
+                picker.selected_idx += 1;
+            } else {
+                picker.selected_idx = 0;
+            }
+        }
+    }
+
+    pub fn theme_picker_select(&mut self) {
+        if let Some(picker) = self.theme_picker.take() {
+            if let Some(theme_name) = picker.themes.get(picker.selected_idx) {
+                let _ = self.set_theme(theme_name);
+            }
+        }
+    }
+    // ----------------------------
 
     pub fn update_live_search(&mut self) {
         let query = if let Some(prompt) = &self.prompt {
@@ -461,10 +531,9 @@ impl App {
     }
 
     fn execute_command(&mut self, cmd: &str) {
-        // ... (kode execute_command tetap sama seperti sebelumnya)
-        let mut parts = cmd.split_whitespace();
-        let name = parts.next().unwrap_or("");
-        let arg = parts.next();
+        let mut parts = cmd.splitn(2, char::is_whitespace);
+        let name = parts.next().unwrap_or("").trim();
+        let arg = parts.next().map(|s| s.trim());
 
         match name {
             "w" => {
@@ -512,6 +581,15 @@ impl App {
                     }
                 } else {
                     self.message = Some("usage: :e <file>".into());
+                }
+            }
+            "settheme" => {
+                if let Some(theme_name) = arg {
+                    if let Err(e) = self.set_theme(theme_name) {
+                        self.message = Some(e);
+                    }
+                } else {
+                    self.open_theme_picker();
                 }
             }
             _ => {

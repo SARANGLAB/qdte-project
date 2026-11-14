@@ -25,6 +25,7 @@ pub enum Command {
     SearchNext,
     SearchPrev,
     ClearSearch,
+    OpenThemePicker,
 }
 
 pub trait Keymap {
