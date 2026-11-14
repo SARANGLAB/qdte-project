@@ -304,6 +304,29 @@ impl Editor {
                     ChangeKind::Structural,
                 ));
             }
+            Action::DeleteRange { start, end } => {
+                if start < end {
+                    let cursor_before = self.cursor.char_idx();
+                    let removed = self.buffer.remove(start..end)?;
+                    self.cursor = Cursor::at(start);
+                    self.cursor.clamp(&self.buffer);
+                    let cursor_after = self.cursor.char_idx();
+                    self.history
+                        .record(Change::delete(start, removed, cursor_before, cursor_after));
+                }
+            }
+            Action::YankRange { start, end, linewise } => {
+                if start < end {
+                    let content = self.buffer.slice_to_string(start..end)?;
+                    if linewise {
+                        self.register.set_linewise(content);
+                    } else {
+                        self.register.set_charwise(content);
+                    }
+                    self.cursor = Cursor::at(start);
+                    self.cursor.clamp(&self.buffer);
+                }
+            }
         }
         Ok(())
     }
@@ -548,5 +571,49 @@ mod tests {
         e.apply(Action::MoveLineEndBlock).unwrap();
         // cursor stays at line start
         assert_eq!(e.cursor().char_idx(), 4);
+    }
+    #[test]
+    fn delete_range_removes_chars() {
+        let mut e = ed("hello world");
+        e.apply(Action::DeleteRange { start: 5, end: 11 }).unwrap();
+        assert_eq!(e.buffer().as_string(), "hello");
+        assert_eq!(e.cursor().char_idx(), 5);
+    }
+
+    #[test]
+    fn delete_range_is_undoable() {
+        let mut e = ed("abcdef");
+        e.apply(Action::DeleteRange { start: 1, end: 4 }).unwrap();
+        assert_eq!(e.buffer().as_string(), "aef");
+        e.apply(Action::Undo).unwrap();
+        assert_eq!(e.buffer().as_string(), "abcdef");
+    }
+
+    #[test]
+    fn yank_range_charwise() {
+        let mut e = ed("hello world");
+        e.apply(Action::YankRange {
+            start: 0,
+            end: 5,
+            linewise: false,
+        })
+        .unwrap();
+        assert_eq!(e.register().content, "hello");
+        assert!(!e.register().linewise);
+        assert_eq!(e.buffer().as_string(), "hello world"); // unchanged
+        assert_eq!(e.cursor().char_idx(), 0);
+    }
+
+    #[test]
+    fn yank_range_linewise() {
+        let mut e = ed("one\ntwo\nthree");
+        e.apply(Action::YankRange {
+            start: 0,
+            end: 8,
+            linewise: true,
+        })
+        .unwrap();
+        assert_eq!(e.register().content, "one\ntwo\n");
+        assert!(e.register().linewise);
     }
 }

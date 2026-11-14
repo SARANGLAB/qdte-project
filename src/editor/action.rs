@@ -7,6 +7,7 @@ pub enum Action {
     MoveDown,
     MoveLineStart,
     MoveLineEnd,
+    MoveLineEndBlock,
     MoveBufferStart,
     MoveBufferEnd,
     MoveLeftLineClamped,
@@ -15,15 +16,15 @@ pub enum Action {
     // text editing
     InsertChar(char),
     InsertNewline,
+    InsertTab,
     DeleteBackward,
     DeleteForward,
     DeleteLine,
+    DeleteRange { start: usize, end: usize },
 
     // undo / redo
     Undo,
     Redo,
-
-    InsertTab,
 
     // word motions
     WordForward,
@@ -35,10 +36,9 @@ pub enum Action {
 
     // yank / paste
     YankLine,
+    YankRange { start: usize, end: usize, linewise: bool },
     PasteAfter,
     PasteBefore,
-
-    MoveLineEndBlock,
 }
 
 impl Action {
@@ -46,15 +46,16 @@ impl Action {
         matches!(
             self,
             Action::InsertChar(_)
-            | Action::InsertNewline
-            | Action::InsertTab
-            | Action::DeleteBackward
-            | Action::DeleteForward
-            | Action::DeleteLine
-            | Action::PasteAfter
-            | Action::PasteBefore
-            | Action::Undo
-            | Action::Redo
+                | Action::InsertNewline
+                | Action::InsertTab
+                | Action::DeleteBackward
+                | Action::DeleteForward
+                | Action::DeleteLine
+                | Action::DeleteRange { .. }
+                | Action::PasteAfter
+                | Action::PasteBefore
+                | Action::Undo
+                | Action::Redo
         )
     }
 }

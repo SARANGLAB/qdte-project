@@ -16,6 +16,10 @@ pub enum Command {
     SaveAs,
     Open,
     Quit,
+    EnterVisual(Mode),
+    ExitVisual,
+    DeleteVisualSelection,
+    YankVisualSelection,
 }
 
 pub trait Keymap {

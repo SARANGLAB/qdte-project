@@ -34,6 +34,7 @@ impl Keymap for VimKeymap {
         match mode {
             Mode::Normal => self.resolve_normal(key),
             Mode::Insert => self.resolve_insert(key),
+            Mode::Visual | Mode::VisualLine => self.resolve_visual(mode, key),
         }
     }
 
@@ -42,7 +43,7 @@ impl Keymap for VimKeymap {
     }
 
     fn block_cursor(&self, mode: Mode) -> bool {
-        matches!(mode, Mode::Normal)
+        matches!(mode, Mode::Normal | Mode::Visual | Mode::VisualLine)
     }
 }
 
@@ -73,26 +74,26 @@ impl VimKeymap {
 
         // Handle pending operator
         match std::mem::take(&mut self.pending) {
-        Pending::D => {
-            if key.code == Char('d') && key.modifiers == M::NONE {
-                return Some(Command::Editor(Action::DeleteLine));
+            Pending::D => {
+                if key.code == Char('d') && key.modifiers == M::NONE {
+                    return Some(Command::Editor(Action::DeleteLine));
+                }
+                return None;
             }
-            return None;
-        }
-        Pending::G => {
-            if key.code == Char('g') && key.modifiers == M::NONE {
-                return Some(Command::Editor(Action::MoveBufferStart));
+            Pending::G => {
+                if key.code == Char('g') && key.modifiers == M::NONE {
+                    return Some(Command::Editor(Action::MoveBufferStart));
+                }
+                return None;
             }
-            return None;
-        }
-        Pending::Y => {
-            if key.code == Char('y') && key.modifiers == M::NONE {
-                return Some(Command::Editor(Action::YankLine));
+            Pending::Y => {
+                if key.code == Char('y') && key.modifiers == M::NONE {
+                    return Some(Command::Editor(Action::YankLine));
+                }
+                return None;
             }
-            return None;
+            Pending::None => {}
         }
-        Pending::None => {}
-    }
 
         Some(match (key.code, key.modifiers) {
             (Char('u'), M::NONE) => Command::Editor(Action::Undo),
@@ -148,6 +149,8 @@ impl VimKeymap {
             }
             (Char('p'), M::NONE) => Command::Editor(Action::PasteAfter),
             (Char('P'), M::SHIFT) => Command::Editor(Action::PasteBefore),
+            (Char('v'), M::NONE) => Command::EnterVisual(Mode::Visual),
+            (Char('V'), M::SHIFT) => Command::EnterVisual(Mode::VisualLine),
             _ => return None,
         })
     }
@@ -159,6 +162,8 @@ impl VimKeymap {
         Some(match (key.code, key.modifiers) {
             (Esc, _) => Command::SetMode(Mode::Normal),
             (Char('s'), M::CONTROL) => Command::Save,
+            (Char('S'), m) if m.contains(M::CONTROL) => Command::SaveAs,
+            (Char('o'), M::CONTROL) => Command::Open,
             (Char('x'), M::CONTROL) | (Char('q'), M::CONTROL) | (Char('c'), M::CONTROL) => {
                 Command::Quit
             }
@@ -175,6 +180,51 @@ impl VimKeymap {
             (Down, _) => Command::Editor(Action::MoveDown),
             (Home, _) => Command::Editor(Action::MoveLineStart),
             (End, _) => Command::Editor(Action::MoveLineEnd),
+            _ => return None,
+        })
+    }
+
+    fn resolve_visual(&mut self, mode: Mode, key: KeyEvent) -> Option<Command> {
+        use KeyCode::*;
+        use KeyModifiers as M;
+
+        Some(match (key.code, key.modifiers) {
+            (Esc, _) => Command::ExitVisual,
+            (Char('v'), M::NONE) => match mode {
+                Mode::Visual => Command::ExitVisual,
+                Mode::VisualLine => Command::SetMode(Mode::Visual),
+                _ => unreachable!(),
+            },
+            (Char('V'), M::SHIFT) => match mode {
+                Mode::VisualLine => Command::ExitVisual,
+                Mode::Visual => Command::SetMode(Mode::VisualLine),
+                _ => unreachable!(),
+            },
+            (Char('d'), M::NONE) | (Char('x'), M::NONE) => Command::DeleteVisualSelection,
+            (Char('y'), M::NONE) => Command::YankVisualSelection,
+
+            // Movement (extends selection implicitly via anchor)
+            (Char('h'), M::NONE) => Command::Editor(Action::MoveLeftLineClamped),
+            (Char('j'), M::NONE) => Command::Editor(Action::MoveDown),
+            (Char('k'), M::NONE) => Command::Editor(Action::MoveUp),
+            (Char('l'), M::NONE) => Command::Editor(Action::MoveRightLineClamped),
+            (Char('0'), M::NONE) => Command::Editor(Action::MoveLineStart),
+            (Char('$'), M::SHIFT) => Command::Editor(Action::MoveLineEndBlock),
+            (Char('w'), M::NONE) => Command::Editor(Action::WordForward),
+            (Char('b'), M::NONE) => Command::Editor(Action::WordBackward),
+            (Char('e'), M::NONE) => Command::Editor(Action::WordEnd),
+            (Char('W'), M::SHIFT) => Command::Editor(Action::WordForwardBig),
+            (Char('B'), M::SHIFT) => Command::Editor(Action::WordBackwardBig),
+            (Char('E'), M::SHIFT) => Command::Editor(Action::WordEndBig),
+            (Char('G'), M::SHIFT) => Command::Editor(Action::MoveBufferEnd),
+
+            (Char('S'), m) if m.contains(M::CONTROL) => Command::SaveAs,
+            (F(2), M::NONE) => Command::SaveAs,
+            (Char('s'), M::CONTROL) => Command::Save,
+            (Char('o'), M::CONTROL) => Command::Open,
+            (Char('x'), M::CONTROL) | (Char('q'), M::CONTROL) | (Char('c'), M::CONTROL) => {
+                Command::Quit
+            }
             _ => return None,
         })
     }
@@ -196,6 +246,10 @@ mod tests {
         km.resolve(Mode::Normal, key(KeyCode::Char(c), KeyModifiers::SHIFT))
     }
 
+    fn visual(km: &mut VimKeymap, mode: Mode, c: char) -> Option<Command> {
+        km.resolve(mode, key(KeyCode::Char(c), KeyModifiers::NONE))
+    }
+
     #[test]
     fn h_j_k_l_map_to_movement() {
         let mut km = VimKeymap::new();
@@ -209,6 +263,82 @@ mod tests {
     fn i_enters_insert() {
         let mut km = VimKeymap::new();
         assert!(matches!(normal(&mut km, 'i'), Some(Command::SetMode(Mode::Insert))));
+    }
+
+    #[test]
+    fn v_enters_visual() {
+        let mut km = VimKeymap::new();
+        assert!(matches!(
+            normal(&mut km, 'v'),
+            Some(Command::EnterVisual(Mode::Visual))
+        ));
+    }
+
+    #[test]
+    fn shift_v_enters_visual_line() {
+        let mut km = VimKeymap::new();
+        assert!(matches!(
+            normal_shift(&mut km, 'V'),
+            Some(Command::EnterVisual(Mode::VisualLine))
+        ));
+    }
+
+    #[test]
+    fn visual_esc_exits() {
+        let mut km = VimKeymap::new();
+        assert!(matches!(
+            km.resolve(Mode::Visual, key(KeyCode::Esc, KeyModifiers::NONE)),
+            Some(Command::ExitVisual)
+        ));
+    }
+
+    #[test]
+    fn visual_v_toggles_off() {
+        let mut km = VimKeymap::new();
+        assert!(matches!(
+            visual(&mut km, Mode::Visual, 'v'),
+            Some(Command::ExitVisual)
+        ));
+    }
+
+    #[test]
+    fn visual_v_switches_from_visual_line() {
+        let mut km = VimKeymap::new();
+        assert!(matches!(
+            visual(&mut km, Mode::VisualLine, 'v'),
+            Some(Command::SetMode(Mode::Visual))
+        ));
+    }
+
+    #[test]
+    fn visual_d_deletes_selection() {
+        let mut km = VimKeymap::new();
+        assert!(matches!(
+            visual(&mut km, Mode::Visual, 'd'),
+            Some(Command::DeleteVisualSelection)
+        ));
+    }
+
+    #[test]
+    fn visual_y_yanks_selection() {
+        let mut km = VimKeymap::new();
+        assert!(matches!(
+            visual(&mut km, Mode::Visual, 'y'),
+            Some(Command::YankVisualSelection)
+        ));
+    }
+
+    #[test]
+    fn visual_movement_uses_same_actions() {
+        let mut km = VimKeymap::new();
+        assert!(matches!(
+            visual(&mut km, Mode::Visual, 'l'),
+            Some(Command::Editor(Action::MoveRightLineClamped))
+        ));
+        assert!(matches!(
+            visual(&mut km, Mode::Visual, 'w'),
+            Some(Command::Editor(Action::WordForward))
+        ));
     }
 
     #[test]
@@ -249,7 +379,6 @@ mod tests {
         let mut km = VimKeymap::new();
         assert!(normal(&mut km, 'd').is_none());
         assert!(normal(&mut km, 'x').is_none());
-        // Now pending cleared — 'x' alone works
         assert!(matches!(
             normal(&mut km, 'x'),
             Some(Command::Editor(Action::DeleteForward))
@@ -301,12 +430,14 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_s_saves_in_both_modes() {
+    fn ctrl_s_saves_in_all_modes() {
         let mut km = VimKeymap::new();
         let ctrl_s = key(KeyCode::Char('s'), KeyModifiers::CONTROL);
         assert!(matches!(km.resolve(Mode::Normal, ctrl_s), Some(Command::Save)));
         assert!(matches!(km.resolve(Mode::Insert, ctrl_s), Some(Command::Save)));
+        assert!(matches!(km.resolve(Mode::Visual, ctrl_s), Some(Command::Save)));
     }
+
     #[test]
     fn yy_yanks_line() {
         let mut km = VimKeymap::new();
@@ -322,7 +453,6 @@ mod tests {
         let mut km = VimKeymap::new();
         assert!(normal(&mut km, 'y').is_none());
         assert!(normal(&mut km, 'w').is_none());
-        // Subsequent 'w' works alone
         assert!(matches!(
             normal(&mut km, 'w'),
             Some(Command::Editor(Action::WordForward))
@@ -346,6 +476,7 @@ mod tests {
             Some(Command::Editor(Action::PasteBefore))
         ));
     }
+
     #[test]
     fn dollar_moves_to_last_char() {
         let mut km = VimKeymap::new();

@@ -180,5 +180,45 @@ fn dispatch_command(app: &mut App, cmd: Command, quit_armed: &mut bool) -> bool 
             *quit_armed = false;
             false
         }
+        Command::EnterVisual(mode) => {
+            app.selection_anchor = Some(app.editor.cursor().char_idx());
+            app.mode = mode;
+            app.message = None;
+            *quit_armed = false;
+            false
+        }
+        Command::ExitVisual => {
+            app.mode = Mode::Normal;
+            app.selection_anchor = None;
+            app.message = None;
+            *quit_armed = false;
+            false
+        }
+        Command::DeleteVisualSelection => {
+            if let Some((start, end, _)) = app.visual_range() {
+                if let Err(e) = app.editor.apply(Action::DeleteRange { start, end }) {
+                    app.message = Some(format!("error: {}", e));
+                }
+            }
+            app.mode = Mode::Normal;
+            app.selection_anchor = None;
+            *quit_armed = false;
+            false
+        }
+        Command::YankVisualSelection => {
+            if let Some((start, end, linewise)) = app.visual_range() {
+                if let Err(e) = app.editor.apply(Action::YankRange {
+                    start,
+                    end,
+                    linewise,
+                }) {
+                    app.message = Some(format!("error: {}", e));
+                }
+            }
+            app.mode = Mode::Normal;
+            app.selection_anchor = None;
+            *quit_armed = false;
+            false
+        }
     }
 }

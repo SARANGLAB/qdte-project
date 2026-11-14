@@ -127,6 +127,7 @@ pub struct App {
     pub mode: Mode,
     pub config: Config,
     pub prompt: Option<Prompt>,
+    pub selection_anchor: Option<usize>,
     saved_hash: Option<u64>,
 }
 
@@ -144,6 +145,7 @@ impl App {
             mode: Mode::Normal,
             config,
             prompt: None,
+            selection_anchor: None,
             saved_hash,
         }
     }
@@ -162,6 +164,7 @@ impl App {
             mode: Mode::Normal,
             config,
             prompt: None,
+            selection_anchor: None,
             saved_hash,
         })
     }
@@ -209,6 +212,41 @@ impl App {
 
     pub fn cancel_prompt(&mut self) {
         self.prompt = None;
+    }
+
+    pub fn visual_range(&self) -> Option<(usize, usize, bool)> {
+        let anchor = self.selection_anchor?;
+        let cursor_idx = self.editor.cursor().char_idx();
+        let buffer = self.editor.buffer();
+        let linewise = matches!(self.mode, Mode::VisualLine);
+
+        if linewise {
+            let anchor_line = buffer.char_to_line(anchor);
+            let cursor_line = buffer.char_to_line(cursor_idx);
+            let (start_line, end_line) = if anchor_line <= cursor_line {
+                (anchor_line, cursor_line)
+            } else {
+                (cursor_line, anchor_line)
+            };
+            let start = buffer.line_to_char(start_line);
+            let end = if end_line + 1 < buffer.len_lines() {
+                buffer.line_to_char(end_line + 1)
+            } else {
+                buffer.len_chars()
+            };
+            Some((start, end, true))
+        } else {
+            let (lo, hi) = if anchor <= cursor_idx {
+                (anchor, cursor_idx)
+            } else {
+                (cursor_idx, anchor)
+            };
+            let hi_end = crate::editor::Cursor::at(hi)
+                .next_grapheme_end(buffer)
+                .unwrap_or(hi + 1);
+            let end = hi_end.min(buffer.len_chars()).max(hi + 1).min(buffer.len_chars());
+            Some((lo, end, false))
+        }
     }
 
     pub fn confirm_prompt(&mut self) {

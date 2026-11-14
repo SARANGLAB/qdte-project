@@ -57,12 +57,37 @@ impl Renderer {
             let line_idx = self.top_line + row;
             queue!(stdout, MoveTo(0, row as u16))?;
             if line_idx < buffer.len_lines() {
-                let rendered = render_line(buffer, line_idx, self.left_col, cols, self.tab_width);
+                let sel = app.visual_range();
+                let (char_range, full_line) = if let Some((s, e, lw)) = sel {
+                    if lw {
+                        let line_start = buffer.line_to_char(line_idx);
+                        // Baris terpilih jika line_start berada di dalam [s, e).
+                        // Edge case: baris kosong di akhir buffer dengan s == e.
+                        let selected = if s == e {
+                            line_start == s
+                        } else {
+                            line_start >= s && line_start < e
+                        };
+                        (None, selected)
+                    } else {
+                        (Some((s, e)), false)
+                    }
+                } else {
+                    (None, false)
+                };
+
+                let rendered = render_line_with_selection(
+                    buffer,
+                    line_idx,
+                    self.left_col,
+                    cols,
+                    self.tab_width,
+                    char_range,
+                    full_line,
+                );
                 if !rendered.is_empty() {
                     queue!(stdout, Print(rendered))?;
                 }
-            } else {
-                queue!(stdout, Print("~"))?;
             }
         }
 
@@ -152,6 +177,88 @@ pub(crate) fn visual_col(line_text: &str, grapheme_count: usize, tab_width: usiz
     w
 }
 
+pub(crate) fn render_line_with_selection(
+    buffer: &Buffer,
+    line_idx: usize,
+    left_col: usize,
+    max_width: usize,
+    tab_width: usize,
+    selection: Option<(usize, usize)>, // absolute char range, exclusive end
+    full_line: bool,
+) -> String {
+    let text = buffer.line(line_idx).unwrap_or_default();
+    let line_start = buffer.line_to_char(line_idx);
+
+    let mut out = String::new();
+    let mut visual = 0usize;
+    let mut emitted = 0usize;
+    let mut char_offset = 0usize;
+    let mut in_hl = false;
+
+    for g in text.graphemes(true) {
+        let gw = if g == "\t" {
+            tab_width - (visual % tab_width)
+        } else {
+            UnicodeWidthStr::width(g)
+        };
+
+        let abs_pos = line_start + char_offset;
+        let selected = if full_line {
+            true
+        } else if let Some((s, e)) = selection {
+            abs_pos >= s && abs_pos < e
+        } else {
+            false
+        };
+
+        // Skip if entirely left of viewport
+        if visual + gw <= left_col {
+            visual += gw;
+            char_offset += g.chars().count();
+            continue;
+        }
+        // Stop if overflowing right edge
+        if emitted + gw > max_width {
+            break;
+        }
+
+        // Toggle highlight
+        if selected && !in_hl {
+            out.push_str("\x1b[7m"); // reverse video
+            in_hl = true;
+        } else if !selected && in_hl {
+            out.push_str("\x1b[27m");
+            in_hl = false;
+        }
+
+        if visual < left_col {
+            let skip = left_col - visual;
+            out.push_str(&" ".repeat(gw - skip));
+        } else if g == "\t" {
+            out.push_str(&" ".repeat(gw));
+        } else {
+            out.push_str(g);
+        }
+
+        emitted += gw;
+        visual += gw;
+        char_offset += g.chars().count();
+    }
+
+    if in_hl {
+        out.push_str("\x1b[27m");
+    }
+
+    // Line mode: fill to end of width with highlight
+    if full_line && emitted < max_width {
+        out.push_str("\x1b[7m");
+        out.push_str(&" ".repeat(max_width - emitted));
+        out.push_str("\x1b[27m");
+    }
+
+    out
+}
+
 fn format_prompt(prompt: &crate::app::Prompt, width: usize) -> String {
     let prefix = format!("[{}] ", prompt.kind.label());
     let mut line = String::new();
@@ -177,61 +284,6 @@ fn format_prompt(prompt: &crate::app::Prompt, width: usize) -> String {
         out.push(' ');
         w += 1;
     }
-    out
-}
-
-/// Render a single line as a printable string, honoring left scroll offset
-/// and maximum width. Tabs are expanded to spaces.
-pub(crate) fn render_line(
-    buffer: &Buffer,
-    line_idx: usize,
-    left_col: usize,
-    max_width: usize,
-    tab_width: usize,
-) -> String {
-    let text = buffer.line(line_idx).unwrap_or_default();
-    let mut out = String::new();
-    let mut visual = 0usize;
-    let mut emitted = 0usize;
-
-    for g in text.graphemes(true) {
-        let gw = if g == "\t" {
-            tab_width - (visual % tab_width)
-        } else {
-            UnicodeWidthStr::width(g)
-        };
-
-        // Entirely to the left of the viewport.
-        if visual + gw <= left_col {
-            visual += gw;
-            continue;
-        }
-
-        // This grapheme is (partially) visible.
-        let (skip, emit) = if visual < left_col {
-            let skip = left_col - visual;
-            (skip, gw - skip)
-        } else {
-            (0, gw)
-        };
-
-        if emitted + emit > max_width {
-            break;
-        }
-
-        if skip > 0 {
-            // Viewport cuts through a wide grapheme — pad with spaces.
-            out.push_str(&" ".repeat(emit));
-        } else if g == "\t" {
-            out.push_str(&" ".repeat(gw));
-        } else {
-            out.push_str(g);
-        }
-
-        emitted += emit;
-        visual += gw;
-    }
-
     out
 }
 
@@ -320,52 +372,87 @@ mod tests {
     }
 
     // ---- render_line ----
-
     #[test]
     fn render_line_simple() {
         let b = buf("hello");
-        assert_eq!(render_line(&b, 0, 0, 80, TAB_WIDTH), "hello");
+        assert_eq!(
+            render_line_with_selection(&b, 0, 0, 80, TAB_WIDTH, None, false),
+            "hello"
+        );
     }
 
     #[test]
     fn render_line_with_left_offset() {
         let b = buf("abcdef");
-        assert_eq!(render_line(&b, 0, 2, 80, TAB_WIDTH), "cdef");
+        assert_eq!(
+            render_line_with_selection(&b, 0, 2, 80, TAB_WIDTH, None, false),
+            "cdef"
+        );
     }
 
     #[test]
     fn render_line_truncates_to_max_width() {
         let b = buf("abcdef");
-        assert_eq!(render_line(&b, 0, 0, 3, TAB_WIDTH), "abc");
+        assert_eq!(
+            render_line_with_selection(&b, 0, 0, 3, TAB_WIDTH, None, false),
+            "abc"
+        );
     }
 
     #[test]
     fn render_line_expands_tab() {
         let b = buf("a\tb");
-        // 'a' + tab (3 spaces to reach col 4) + 'b'
-        assert_eq!(render_line(&b, 0, 0, 80, TAB_WIDTH), "a   b");
+        assert_eq!(
+            render_line_with_selection(&b, 0, 0, 80, TAB_WIDTH, None, false),
+            "a   b"
+        );
     }
 
     #[test]
     fn render_line_handles_offset_cutting_tab() {
         let b = buf("a\tb");
-        // Cols: 'a'=0, tab=1..3, 'b'=4
-        // left_col=2 skips 'a' + first 2 spaces of tab, keeps last space + 'b'
-        assert_eq!(render_line(&b, 0, 2, 80, TAB_WIDTH), "  b");
+        assert_eq!(
+            render_line_with_selection(&b, 0, 2, 80, TAB_WIDTH, None, false),
+            "  b"
+        );
     }
 
     #[test]
     fn render_line_out_of_range_is_empty() {
         let b = buf("only");
-        assert_eq!(render_line(&b, 5, 0, 80, TAB_WIDTH), "");
+        assert_eq!(
+            render_line_with_selection(&b, 5, 0, 80, TAB_WIDTH, None, false),
+            ""
+        );
     }
 
     #[test]
     fn render_line_respects_custom_tab_width() {
         let b = buf("a\tb");
-        // tab_width = 8: 'a' + 7 spaces + 'b'
-        assert_eq!(render_line(&b, 0, 0, 80, 8), "a       b");
+        assert_eq!(
+            render_line_with_selection(&b, 0, 0, 80, 8, None, false),
+            "a       b"
+        );
     }
+
+    #[test]
+    fn render_line_with_char_selection_highlights_range() {
+        let b = buf("abcdef");
+        let out = render_line_with_selection(&b, 0, 0, 80, TAB_WIDTH, Some((1, 4)), false);
+        // Output includes ANSI escape codes
+        assert!(out.contains("\x1b[7m")); // reverse on
+        assert!(out.contains("\x1b[27m")); // reverse off
+        assert!(out.contains("bcd"));
+    }
+
+    #[test]
+    fn render_line_full_line_highlight() {
+        let b = buf("abc");
+        let out = render_line_with_selection(&b, 0, 0, 10, TAB_WIDTH, Some((0, 3)), true);
+        assert!(out.starts_with("\x1b[7m"));
+        assert!(out.contains("\x1b[27m"));
+    }
+
     #[test]
     fn format_prompt_basic() {
         use crate::app::{Prompt, PromptKind};

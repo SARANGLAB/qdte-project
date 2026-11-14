@@ -18,4 +18,8 @@ impl Register {
         self.content = content;
         self.linewise = true;
     }
+    pub fn set_charwise(&mut self, content: String) {
+        self.content = content;
+        self.linewise = false;
+    }
 }
