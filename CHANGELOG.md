@@ -9,8 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **CLI**
+- **CLI & Setup**
   - Argument parsing with `clap` (`qdte <FILE>`, `--help`, `--version`).
+  - First-run setup wizard: prompts the user to choose a default keymap
+    (Normal or Vi) on the first launch and saves it to the config file.
+  - Built-in tutorials accessible via `qdte tutor` and `qdte vi-tutor`.
   - `argv[0]` detection: invoking via `vim`, `nvim`, or `vi` selects the Vim
     keybinding profile; any other name uses the non-modal profile.
 
@@ -19,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Line ending detection (LF or CRLF) and round-trip preservation.
   - UTF-8 BOM detection and round-trip preservation.
   - New files are not created until the first save.
+  - Gracefully rejects directories passed as file arguments.
 
 - **Text buffer & Cursor**
   - Ropey-backed buffer with char-indexed API.
@@ -33,28 +37,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Dirty state derived from content hash comparison.
   - Yank/Paste (`yy`, `p`, `P`) with linewise and charwise support.
 
+- **Search**
+  - Incremental (live) search as the user types in the prompt.
+  - Case-insensitive matching (e.g., `Status` matches `status`).
+  - Visual highlighting of all matches, with the active match highlighted
+    in a brighter color.
+  - Normal mode: `Ctrl+F` to search, `F3` / `Shift+F3` for next/prev.
+  - Vim mode: `/` to search, `n` / `N` for next/prev.
+  - `Esc` cancels the search prompt and restores the cursor to its original
+    position, or clears the active highlight in normal mode.
+
 - **Terminal & Renderer**
   - RAII terminal guard (raw mode + alternate screen, panic-safe).
+  - Line number gutter with dynamic width based on buffer size.
   - Vertical and horizontal scrolling.
   - Tab expansion (configurable).
   - Unicode visual width aware.
   - Status bar with mode, filename, dirty flag, char/line/col position.
-  - Prompt UI for Open, Save As, and `:` command mode.
+  - Prompt UI for Open, Save As, Search, and `:` command mode.
   - Visual selection highlight (char-wise and line-wise).
   - Block cursor in Normal/Visual modes, bar cursor in Insert mode.
-  - Tilde (`~`) indicator for lines past EOF (non-modal profile only, see
-    Known Limitations).
+  - Tilde (`~`) indicator for lines past EOF.
 
 - **Keybinding: Normal profile**
   - `Ctrl+S` save, `Ctrl+Shift+S` / `F2` Save As, `Ctrl+O` open.
   - `Ctrl+X` / `Ctrl+Q` / `Ctrl+C` quit (with unsaved changes warning).
   - `Ctrl+Z` undo, `Ctrl+Y` redo.
+  - `Ctrl+F` search, `F3` / `Shift+F3` next/prev.
+  - `Esc` clears search highlights.
   - Arrows, Home, End, Enter, Tab, Backspace, Delete.
 
 - **Keybinding: Vim profile**
   - Modal editing: Normal, Insert, Visual, Visual Line.
   - Normal mode: `h j k l`, `0`, `$`, `gg`, `G`, `w b e`, `W B E`, `i a I A`,
-    `o O`, `x`, `dd`, `yy`, `p P`, `u`, `Ctrl+R`, `v`, `V`, `:`.
+    `o O`, `x`, `dd`, `yy`, `p P`, `u`, `Ctrl+R`, `v`, `V`, `/`, `n`, `N`, `:`.
   - Insert mode: standard text input, `Esc` to return to normal.
   - Visual mode: extend selection with motions, `y` yank, `d`/`x` delete,
     `o` swap anchor, `v`/`V` toggle modes.
@@ -85,18 +101,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   register is not linewise.
 - Line-wise visual selection no longer highlights the entire remaining
   screen when only one line is selected.
+- Tilde (`~`) rendering is now aligned correctly with the line number gutter.
 
 ### Known Limitations
 
-- **Tilde (`~`) rendering in Vim mode:** The `~` indicator for lines past EOF
-  is currently rendered in the non-modal (normal) keymap profile but is
-  missing or not visible when using the Vim profile.
-- No search functionality (`/` or `Ctrl+F`).
-- No line number gutter.
 - No syntax highlighting.
 - Visual block mode (`Ctrl+V`) is not implemented.
 - No distribution binaries or CI release pipeline yet.
 
 ## [0.1.0] — TBD
 
-First tagged release. Pending: Search, Line numbers, Distribution builds.
+First tagged release. Pending: Syntax highlighting, Distribution builds.

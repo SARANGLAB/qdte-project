@@ -2,7 +2,7 @@
 
 **Quick & Dirty Text Editor** — a terminal-based text editor built with Rust.
 
-A [Sarang Community](https://github.com/SARANGLAB/) project.
+A [Sarang Community](https://github.com/SARANGLAB) project.
 
 > QDTE takes its name from QDOS (Quick and Dirty Operating System). The spirit
 > is the same: fast, minimal, native. Not that the implementation should be
@@ -25,7 +25,7 @@ Development principles:
 ## Status
 
 **v0.1.0 — early development.** Core editing is functional and stable. The
-codebase is small and changes frequently.
+codebase is small and changes frequently. Not yet distributed publicly.
 
 ## Features
 
@@ -33,33 +33,36 @@ Current as of v0.1.0:
 
 - **Two keybinding profiles**
   - *Normal* — non-modal, traditional shortcuts (`Ctrl+S`, `Ctrl+X`, arrows).
-  - *Vim* — modal editing (Normal, Insert, and Visual modes).
-  - Selected automatically by how the binary is invoked, or forced via config.
+  - *Vim* — modal editing (Normal, Insert, Visual, and Command modes).
+  - Selected automatically via first-run setup wizard, `argv[0]`, or config.
+- **Interactive Setup & Tutorials**
+  - First-run setup wizard prompts you to choose a default keymap.
+  - Built-in tutorials: `qdte tutor` and `qdte vi-tutor`.
+- **Search**
+  - Incremental (live) and case-insensitive.
+  - Regex-free exact substring matching (e.g., `Status` matches `status`).
+  - Highlights all matches with a brighter color for the active match.
 - **File I/O** with round-trip preservation of:
   - Line endings (LF or CRLF — detected per file, preserved on write).
   - UTF-8 BOM (stripped from buffer, restored on write).
-- **Unicode-correct cursor**
-  - Grapheme-cluster aware horizontal movement (CJK, emoji ZWJ sequences,
-    regional-indicator flags all move as one unit).
-  - Visual column tracking with Unicode width for correct rendering.
+- **Unicode-correct cursor & rendering**
+  - Grapheme-cluster aware horizontal movement (CJK, emoji ZWJ).
+  - Visual column tracking with Unicode width.
   - Block cursor in Normal/Visual modes, bar cursor in Insert mode.
 - **Editing**
-  - Full undo/redo history with coalescing (contiguous typing merges into
-    a single undo step).
+  - Full undo/redo history with coalescing.
   - Save, Save As, Open, and Quit with unsaved-changes protection.
 - **Vim Advanced**
   - Word motions (`w`, `b`, `e`, `W`, `B`, `E`).
   - Yank/Paste (`yy`, `p`, `P`) with linewise and charwise support.
   - Visual mode (`v`, `V`) with movement, `y`, `d`/`x`, and `o` swap anchor.
   - Command-line mode (`:w`, `:wq`, `:q`, `:q!`, `:e`).
-- **Configuration** via TOML.
 - **Full-screen renderer**
+  - Line number gutter.
   - Vertical and horizontal scrolling.
   - Tab expansion, `~` for lines past EOF.
-  - Status bar with mode, filename, dirty flag, cursor position, and transient
-    messages.
-- **New files are not created until save.** Opening a non-existent path creates
-  an empty buffer in memory; the file appears on disk only after saving.
+  - Status bar with mode, filename, dirty flag, cursor position, and messages.
+- **Configuration** via TOML.
 
 ## Building
 
@@ -86,14 +89,33 @@ After installing, `qdte` will be available from any directory.
 ```sh
 qdte                    # empty buffer
 qdte file.txt           # open existing file, or start new buffer
+qdte tutor              # view normal keymap tutorial
+qdte vi-tutor           # view vim keymap tutorial
 qdte --help             # usage
 qdte --version          # version
 ```
 
+### First Run
+
+On the first launch, QDTE will prompt you to choose a default keymap:
+
+```text
+Welcome to QDTE!
+
+Please choose your default keymap:
+  1. Normal (for average users) [Default]
+  2. Vi (for advanced users)
+Choice (1/2):
+```
+
+This choice is saved to your platform-specific configuration file.
+
 ### Choosing a keybinding profile
 
-The keymap is selected by how the binary is invoked. To use Vim keybindings,
-make QDTE accessible under a `vim`, `nvim`, or `vi` name.
+The keymap can be selected in three ways (in order of precedence):
+1. Overridden in the `config.toml` file.
+2. Invoked via `vim`, `nvim`, or `vi` (selects Vim keybindings).
+3. The default saved from the first-run setup wizard.
 
 **Linux / macOS:**
 
@@ -109,10 +131,6 @@ Copy-Item "$env:USERPROFILE\.cargo\bin\qdte.exe" "$env:USERPROFILE\.cargo\bin\vi
 Copy-Item "$env:USERPROFILE\.cargo\bin\qdte.exe" "$env:USERPROFILE\.cargo\bin\nano.exe"
 ```
 
-QDTE inspects `argv[0]` — `vim`, `nvim`, and `vi` select Vim keybindings;
-anything else (including `qdte`, `nano`) uses the non-modal keybindings.
-This can be overridden in the configuration file.
-
 ## Keybindings
 
 ### Normal profile (default)
@@ -127,6 +145,9 @@ Non-modal editing.
 | `Ctrl+X` / `Ctrl+Q` / `Ctrl+C` | Quit (warns if unsaved) |
 | `Ctrl+Z`    | Undo                      |
 | `Ctrl+Y`    | Redo                      |
+| `Ctrl+F`    | Search                    |
+| `F3` / `Shift+F3` | Next / Prev search match |
+| `Esc`       | Clear search highlight    |
 | `←` `→` `↑` `↓` | Move cursor           |
 | `Home` / `End` | Start / end of line    |
 | `Enter`     | Insert newline            |
@@ -152,12 +173,13 @@ Modal editing. Invoke via `vim`, `nvim`, or `vi`.
 | `x`       | Delete character under cursor       |
 | `dd`      | Delete current line                 |
 | `yy`      | Yank current line                   |
-| `p P`     | Paste below / above (line or char-wise) |
+| `p P`     | Paste below / above                 |
 | `v V`     | Enter Visual / Visual Line mode     |
-| `u`       | Undo                                |
-| `Ctrl+R`  | Redo                                |
+| `u` / `Ctrl+R` | Undo / Redo                    |
+| `/`       | Search                              |
+| `n` / `N` | Next / Prev search match            |
+| `Esc`     | Clear search highlight / cancel     |
 | `:`       | Enter command-line mode             |
-| `Esc`     | Cancel pending operator             |
 
 **Insert mode:**
 
@@ -202,8 +224,8 @@ QDTE looks for a TOML configuration file at:
 - **macOS:** `~/Library/Application Support/qdte/config.toml`
 - **Linux:** `$XDG_CONFIG_HOME/qdte/config.toml` (or `~/.config/qdte/config.toml`)
 
-If the file is missing, defaults are used. Parse errors print a warning to
-stderr and fall back to defaults rather than refusing to start.
+If the file is missing, the first-run setup wizard will create it. Parse errors
+print a warning to stderr and fall back to defaults.
 
 Example `config.toml`:
 
@@ -215,12 +237,9 @@ tab_width = 4
 expand_tab = false
 
 # Append trailing newline on save if missing.
-# Caveat: QDTE treats '\n' as a separator, not a terminator. With fixeol
-# enabled, saving "hello" writes "hello\n"; reopening shows an extra empty
-# last line.
 fixeol = false
 
-# Force keymap. Omit to infer from argv[0].
+# Force keymap. Omit to infer from setup wizard or argv[0].
 # keymap = "normal" # or "vim"
 ```
 
@@ -239,13 +258,14 @@ Ordered roughly by priority:
 - [x] Full-screen renderer with status bar
 - [x] Undo / redo
 - [x] Open, Save As, and prompt UI
-- [x] Configuration file
+- [x] Configuration file & setup wizard
 - [x] Visual mode, yank, paste
 - [x] `:` command-line mode
 - [x] Word motions (`w`, `b`, `e`)
 - [x] Block cursor in Normal/Visual modes
-- [ ] Search (`/` or `Ctrl+F`)
-- [ ] Line number gutter
+- [x] Search (`/` or `Ctrl+F`)
+- [x] Line number gutter
+- [x] Built-in tutorials (`tutor`, `vi-tutor`)
 - [ ] Syntax highlighting
 - [ ] Distribution and packaging (Linux, Windows, macOS)
 - [ ] CI release pipeline
@@ -254,9 +274,9 @@ Ordered roughly by priority:
 
 ```
 src/
-├── main.rs              entry point, event loop, command dispatch
+├── main.rs              entry point, event loop, command dispatch, setup
 ├── app.rs               application state, prompt UI, command parsing
-├── config.rs            TOML configuration loading
+├── config.rs            TOML configuration loading and saving
 ├── cli/                 argument parsing and argv[0] detection
 ├── editor/
 │   ├── buffer.rs        Ropey-backed text buffer (char-indexed)
@@ -276,7 +296,7 @@ src/
 │   └── mod.rs           Keymap trait, Command enum
 └── terminal/
     ├── input.rs         key event reading
-    ├── renderer.rs      full-screen drawing, visual selection highlight
+    ├── renderer.rs      full-screen drawing, gutter, search highlighting
     └── mod.rs           RAII terminal guard
 ```
 
@@ -285,7 +305,7 @@ Separation of concerns:
 - `Editor` (buffer, cursor, history, register) knows nothing about keybindings,
   filesystem, terminal, or modes.
 - `App` owns the editor plus file path, line ending, BOM, mode, selection
-  anchor, prompt, and dirty state.
+  anchor, prompt, search state, and dirty state.
 - Keymaps resolve keys to `Command`s; commands are dispatched by `App`.
 - `io` is unaware of rendering; `renderer` is unaware of filesystem.
 - Both keybinding profiles share one editor engine.
@@ -296,12 +316,10 @@ Separation of concerns:
 cargo test
 ```
 
-Integration tests live in `tests/`; unit tests are alongside source
-(`#[cfg(test)] mod tests`). Current coverage includes CLI parsing, I/O
-round-trips (LF/CRLF, BOM), buffer operations, cursor movement (including
-emoji ZWJ and regional indicators), editor action dispatch, keymap resolution
-(normal and vim), undo/redo coalescing, visual mode ranges, and renderer line
-formatting.
+Integration tests live in `tests/`; unit tests are alongside source.
+Coverage includes CLI parsing, I/O round-trips, buffer operations, cursor
+movement, editor action dispatch, keymap resolution, undo/redo, visual mode,
+search, and renderer line formatting.
 
 ## License
 

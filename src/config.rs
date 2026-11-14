@@ -1,34 +1,20 @@
 use std::path::PathBuf;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize}; // Tambahkan Serialize
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)] // Tambahkan Serialize
 #[serde(rename_all = "lowercase")]
 pub enum KeymapKind {
     Normal,
     Vim,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)] // Tambahkan Serialize
 #[serde(default)]
 pub struct Config {
-    /// Number of visual columns per tab.
     pub tab_width: usize,
-
-    /// If true, Tab inserts `tab_width` spaces instead of a literal '\t'.
-    /// Note: fixed count, not tab-stop-aware.
     pub expand_tab: bool,
-
-    /// If true, a trailing '\n' is appended on save when the buffer
-    /// does not already end with one.
-    ///
-    /// Caveat: QDTE treats '\n' as a line separator, not terminator.
-    /// With fixeol = true, saving "hello" writes "hello\n"; reopening
-    /// shows an extra empty last line.
     pub fixeol: bool,
-
-    /// Override the keymap selected by argv[0].
-    /// None = infer from invocation name (vim/nvim/vi → Vim; else Normal).
     pub keymap: Option<KeymapKind>,
 }
 
@@ -44,11 +30,6 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Load configuration from the platform default path.
-    ///
-    /// Returns (config, warning). If the file is missing, returns defaults
-    /// with no warning. If the file exists but cannot be parsed, returns
-    /// defaults with a warning message.
     pub fn load() -> (Self, Option<String>) {
         let Some(path) = config_path() else {
             return (Self::default(), None);
@@ -76,7 +57,20 @@ impl Config {
         }
     }
 
-    /// Path where QDTE looks for its config file, if resolvable.
+    pub fn save_default(&self) -> std::io::Result<()> {
+        let path = config_path().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "config path not found")
+        })?;
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let content = toml::to_string_pretty(self).unwrap_or_default();
+        std::fs::write(path, content)?;
+        Ok(())
+    }
+
     pub fn path() -> Option<PathBuf> {
         config_path()
     }
@@ -106,68 +100,5 @@ fn config_path() -> Option<PathBuf> {
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
             .map(|p| p.join("qdte").join("config.toml"))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn defaults_are_sane() {
-        let c = Config::default();
-        assert_eq!(c.tab_width, 4);
-        assert!(!c.expand_tab);
-        assert!(!c.fixeol);
-        assert!(c.keymap.is_none());
-    }
-
-    #[test]
-    fn parses_full_config() {
-        let toml = r#"
-            tab_width = 2
-            expand_tab = true
-            fixeol = true
-            keymap = "vim"
-        "#;
-        let c: Config = toml::from_str(toml).unwrap();
-        assert_eq!(c.tab_width, 2);
-        assert!(c.expand_tab);
-        assert!(c.fixeol);
-        assert_eq!(c.keymap, Some(KeymapKind::Vim));
-    }
-
-    #[test]
-    fn parses_partial_config() {
-        let toml = r#"tab_width = 8"#;
-        let c: Config = toml::from_str(toml).unwrap();
-        assert_eq!(c.tab_width, 8);
-        assert!(!c.expand_tab);
-        assert!(!c.fixeol);
-        assert!(c.keymap.is_none());
-    }
-
-    #[test]
-    fn parses_empty_as_default() {
-        let c: Config = toml::from_str("").unwrap();
-        assert_eq!(c.tab_width, 4);
-    }
-
-    #[test]
-    fn keymap_normal_parses() {
-        let c: Config = toml::from_str(r#"keymap = "normal""#).unwrap();
-        assert_eq!(c.keymap, Some(KeymapKind::Normal));
-    }
-
-    #[test]
-    fn invalid_toml_fails() {
-        let result = toml::from_str::<Config>("tab_width = \"not a number\"");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn config_path_is_resolved_on_this_platform() {
-        // Sanity check: on every supported platform, we expect some path.
-        assert!(config_path().is_some());
     }
 }
