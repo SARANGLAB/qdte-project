@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-11-14
 
 ### Added
 
@@ -102,13 +102,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Line-wise visual selection no longer highlights the entire remaining
   screen when only one line is selected.
 - Tilde (`~`) rendering is now aligned correctly with the line number gutter.
+- Vim mode shifted characters (':', '$', 'G', etc.) now work correctly in
+  terminals that swallow the SHIFT modifier (e.g., WSL2).
 
 ### Known Limitations
 
 - No syntax highlighting.
 - Visual block mode (`Ctrl+V`) is not implemented.
 - No distribution binaries or CI release pipeline yet.
-
-## [0.1.0] — TBD
-
-First tagged release. Pending: Syntax highlighting, Distribution builds.
