@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+*(Next features and changes go here)*
+
+## [0.1.3] - 2026-11-15
+
+### Added
+
+- **Syntax Highlighting**
+  - Out-of-the-box syntax highlighting using `syntect`.
+  - Supports a wide range of languages out of the box (Rust, Python, C, TOML, etc.).
+  - Gracefully handles extensionless files (e.g., `Cargo.lock`, `Dockerfile`).
+
+- **Theming Engine**
+  - Custom TOML-based themes for both UI elements and syntax highlighting.
+  - Theme files are loaded from `~/.config/qdte/themes/` (or `%APPDATA%\qdte\themes\` on Windows).
+  - Built-in fallback theme ensures QDTE works out of the box.
+  - Interactive **Theme Picker** UI: Press `Ctrl+T` (Normal mode) or type `:settheme` (Vim mode) to open a floating popup and switch themes live without restarting.
+  - Active theme is persisted to `config.toml`.
+
+### Changed
+
+- **Performance Improvements**
+  - Cached buffer hash in `Editor` to prevent hashing the entire file on every frame check (`is_dirty`), eliminating typing lag.
+  - Cached Syntect highlight spans in `Renderer`. Syntax highlighting is now calculated only once per edit/theme change, not on every scroll or cursor movement.
+
+### Fixed
+
+- Fixed an issue where resetting syntax colors injected a black background behind text by explicitly reapplying the theme's background.
+- Visual Line selection (`V`) now correctly highlights only the text and a single character for the newline, rather than extending a large block to the right edge of the screen.
+
 ## [0.1.0] - 2026-11-14
 
 ### Added
@@ -107,6 +138,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known Limitations
 
-- No syntax highlighting.
 - Visual block mode (`Ctrl+V`) is not implemented.
 - No distribution binaries or CI release pipeline yet.

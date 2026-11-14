@@ -2,7 +2,7 @@
 
 **Quick & Dirty Text Editor** — a terminal-based text editor built with Rust.
 
-A [Sarang Community](https://github.com/SARANGLAB) project.
+A [Sarang Community](https://github.com/SARANGLAB/) project.
 
 > QDTE takes its name from QDOS (Quick and Dirty Operating System). The spirit
 > is the same: fast, minimal, native. Not that the implementation should be
@@ -24,13 +24,23 @@ Development principles:
 
 ## Status
 
-**v0.1.0 — early development.** Core editing is functional and stable. The
-codebase is small and changes frequently. Not yet distributed publicly.
+**v0.1.0 — early development.** Core editing is functional and stable. We are
+currently developing features for **v0.2.0** (Syntax Highlighting, Theming).
+The codebase is small and changes frequently.
 
 ## Features
 
-Current as of v0.1.0:
+Current development state:
 
+- **Syntax Highlighting**
+  - Out-of-the-box support for many languages via `syntect`.
+  - Correctly identifies extensionless files (e.g., `Cargo.lock`, `Dockerfile`).
+- **Theming Engine**
+  - Fully customizable UI (background, gutter, status bar) and syntax
+    colors via TOML files.
+  - **Interactive Theme Picker:** Press `Ctrl+T` or type `:settheme` to open
+    a floating popup and select a theme live without restarting.
+  - Active theme is automatically persisted to config.
 - **Two keybinding profiles**
   - *Normal* — non-modal, traditional shortcuts (`Ctrl+S`, `Ctrl+X`, arrows).
   - *Vim* — modal editing (Normal, Insert, Visual, and Command modes).
@@ -40,14 +50,12 @@ Current as of v0.1.0:
   - Built-in tutorials: `qdte tutor` and `qdte vi-tutor`.
 - **Search**
   - Incremental (live) and case-insensitive.
-  - Regex-free exact substring matching (e.g., `Status` matches `status`).
   - Highlights all matches with a brighter color for the active match.
 - **File I/O** with round-trip preservation of:
   - Line endings (LF or CRLF — detected per file, preserved on write).
   - UTF-8 BOM (stripped from buffer, restored on write).
 - **Unicode-correct cursor & rendering**
   - Grapheme-cluster aware horizontal movement (CJK, emoji ZWJ).
-  - Visual column tracking with Unicode width.
   - Block cursor in Normal/Visual modes, bar cursor in Insert mode.
 - **Editing**
   - Full undo/redo history with coalescing.
@@ -56,13 +64,13 @@ Current as of v0.1.0:
   - Word motions (`w`, `b`, `e`, `W`, `B`, `E`).
   - Yank/Paste (`yy`, `p`, `P`) with linewise and charwise support.
   - Visual mode (`v`, `V`) with movement, `y`, `d`/`x`, and `o` swap anchor.
-  - Command-line mode (`:w`, `:wq`, `:q`, `:q!`, `:e`).
+  - Command-line mode (`:w`, `:wq`, `:q`, `:q!`, `:e`, `:settheme`).
+- **Performance**
+  - Syntax highlighting and file-hash caching ensure zero-lag typing and
+    scrolling, even on large files.
 - **Full-screen renderer**
-  - Line number gutter.
-  - Vertical and horizontal scrolling.
-  - Tab expansion, `~` for lines past EOF.
+  - Line number gutter, vertical/horizontal scrolling, tab expansion.
   - Status bar with mode, filename, dirty flag, cursor position, and messages.
-- **Configuration** via TOML.
 
 ## Building
 
@@ -81,8 +89,6 @@ The binary is `target/release/qdte` (`qdte.exe` on Windows).
 ```sh
 cargo install --path .
 ```
-
-After installing, `qdte` will be available from any directory.
 
 ## Running
 
@@ -135,8 +141,6 @@ Copy-Item "$env:USERPROFILE\.cargo\bin\qdte.exe" "$env:USERPROFILE\.cargo\bin\na
 
 ### Normal profile (default)
 
-Non-modal editing.
-
 | Key         | Action                    |
 |-------------|---------------------------|
 | `Ctrl+S`    | Save                      |
@@ -147,6 +151,7 @@ Non-modal editing.
 | `Ctrl+Y`    | Redo                      |
 | `Ctrl+F`    | Search                    |
 | `F3` / `Shift+F3` | Next / Prev search match |
+| `Ctrl+T`    | Open Theme Picker         |
 | `Esc`       | Clear search highlight    |
 | `←` `→` `↑` `↓` | Move cursor           |
 | `Home` / `End` | Start / end of line    |
@@ -215,21 +220,21 @@ Modal editing. Invoke via `vim`, `nvim`, or `vi`.
 | `:q`        | Quit (refused if unsaved changes)   |
 | `:q!`       | Force quit                          |
 | `:e <path>` | Open file                           |
+| `:settheme` | Open Theme Picker                   |
 
-## Configuration
+## Configuration & Theming
 
-QDTE looks for a TOML configuration file at:
+QDTE looks for a configuration file at:
 
 - **Windows:** `%APPDATA%\qdte\config.toml`
 - **macOS:** `~/Library/Application Support/qdte/config.toml`
 - **Linux:** `$XDG_CONFIG_HOME/qdte/config.toml` (or `~/.config/qdte/config.toml`)
 
-If the file is missing, the first-run setup wizard will create it. Parse errors
-print a warning to stderr and fall back to defaults.
-
-Example `config.toml`:
+### Config Example
 
 ```toml
+# config.toml
+
 # Visual tab stop for rendering and expand_tab.
 tab_width = 4
 
@@ -241,7 +246,47 @@ fixeol = false
 
 # Force keymap. Omit to infer from setup wizard or argv[0].
 # keymap = "normal" # or "vim"
+
+# Active theme (set automatically when using the Theme Picker).
+theme = "Catppuccin Mocha"
 ```
+
+### Creating Custom Themes
+
+QDTE supports custom themes in TOML format. Place your `.toml` theme files in the `themes` directory next to your config:
+
+- **Windows:** `%APPDATA%\qdte\themes\`
+- **macOS:** `~/Library/Application Support/qdte/themes/`
+- **Linux:** `~/.config/qdte/themes/`
+
+**Theme Example (`catppuccin-mocha.toml`):**
+
+```toml
+[theme]
+name = "Catppuccin Mocha"
+author = "Catppuccin"
+variant = "dark"
+
+[ui]
+background = "#1e1e2e"
+foreground = "#cdd6f4"
+cursor = "#f5e0dc"
+selection = "#45475a"
+statusline_bg = "#181825"
+statusline_fg = "#cdd6f4"
+gutter = "#6c7086"
+
+[syntax]
+keyword = "#cba6f7"
+function = "#89b4fa"
+string = "#a6e3a1"
+number = "#fab387"
+comment = "#6c7086"
+type = "#f9e2af"
+variable = "#cdd6f4"
+```
+
+After adding a new theme file, simply open QDTE, press `Ctrl+T`, and your theme will appear in the list!
 
 ## Roadmap
 
@@ -254,7 +299,7 @@ Ordered roughly by priority:
 - [x] Editor action abstraction
 - [x] Terminal raw mode and input loop
 - [x] Normal keybinding profile
-- [x] Vim keybinding profile (subset)
+- [x] Vim keybinding profile
 - [x] Full-screen renderer with status bar
 - [x] Undo / redo
 - [x] Open, Save As, and prompt UI
@@ -266,7 +311,8 @@ Ordered roughly by priority:
 - [x] Search (`/` or `Ctrl+F`)
 - [x] Line number gutter
 - [x] Built-in tutorials (`tutor`, `vi-tutor`)
-- [ ] Syntax highlighting
+- [x] **Syntax highlighting (via Syntect)**
+- [x] **Custom TOML themes & Live Theme Picker UI**
 - [ ] Distribution and packaging (Linux, Windows, macOS)
 - [ ] CI release pipeline
 
@@ -275,14 +321,14 @@ Ordered roughly by priority:
 ```
 src/
 ├── main.rs              entry point, event loop, command dispatch, setup
-├── app.rs               application state, prompt UI, command parsing
+├── app.rs               application state, prompt UI, theme picker state
 ├── config.rs            TOML configuration loading and saving
 ├── cli/                 argument parsing and argv[0] detection
 ├── editor/
 │   ├── buffer.rs        Ropey-backed text buffer (char-indexed)
 │   ├── cursor.rs        grapheme-aware cursor, word motions
 │   ├── action.rs        abstract editor actions
-│   ├── history.rs       undo/redo stack with coalescing
+│   ├── history.rs       undo/redo stack with caching
 │   ├── register.rs      yank register
 │   ├── mode.rs          Normal / Insert / Visual / VisualLine
 │   └── mod.rs           Editor: owns buffer, cursor, history, register
@@ -294,21 +340,16 @@ src/
 │   ├── normal.rs        non-modal keybinding profile
 │   ├── vim.rs           modal keybinding profile with state machines
 │   └── mod.rs           Keymap trait, Command enum
+├── theme/
+│   ├── builtin.rs       Built-in fallback theme
+│   ├── schema.rs        TOML parsing and validation for themes
+│   └── mod.rs           ThemeManager, Syntect theme builder
 └── terminal/
     ├── input.rs         key event reading
-    ├── renderer.rs      full-screen drawing, gutter, search highlighting
+    ├── highlight.rs     Syntect syntax detection and caching logic
+    ├── renderer.rs      full-screen drawing, theme picker popup
     └── mod.rs           RAII terminal guard
 ```
-
-Separation of concerns:
-
-- `Editor` (buffer, cursor, history, register) knows nothing about keybindings,
-  filesystem, terminal, or modes.
-- `App` owns the editor plus file path, line ending, BOM, mode, selection
-  anchor, prompt, search state, and dirty state.
-- Keymaps resolve keys to `Command`s; commands are dispatched by `App`.
-- `io` is unaware of rendering; `renderer` is unaware of filesystem.
-- Both keybinding profiles share one editor engine.
 
 ## Testing
 
