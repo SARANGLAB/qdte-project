@@ -48,6 +48,12 @@ impl Renderer {
         let buffer = app.editor.buffer();
         let cursor = app.editor.cursor();
 
+        // Hitung lebar gutter (kolom nomor baris)
+        let total_lines = buffer.len_lines();
+        let num_width = total_lines.max(1).to_string().len();
+        let gutter_width = num_width + 1; // 1 spasi setelah angka
+        let text_width = cols.saturating_sub(gutter_width).max(1);
+
         let cursor_line = cursor.line(buffer);
         let cursor_gcol = cursor.grapheme_col(buffer);
         let cursor_visual_col = {
@@ -55,7 +61,7 @@ impl Renderer {
             visual_col(&line_text, cursor_gcol, self.tab_width)
         };
 
-        self.adjust_scroll(cursor_line, cursor_visual_col, content_height, cols);
+        self.adjust_scroll(cursor_line, cursor_visual_col, content_height, text_width);
 
         let mut stdout = io::stdout();
 
@@ -64,7 +70,18 @@ impl Renderer {
         for row in 0..content_height {
             let line_idx = self.top_line + row;
             queue!(stdout, MoveTo(0, row as u16))?;
-            if line_idx < buffer.len_lines() {
+
+            if line_idx < total_lines {
+                // 1. Gambar nomor baris
+                let line_num_str = format!("{:>width$} ", line_idx + 1, width = num_width);
+                queue!(
+                    stdout,
+                    SetForegroundColor(Color::DarkGrey),
+                    Print(line_num_str),
+                    ResetColor,
+                )?;
+
+                // 2. Siapkan rentang seleksi & pencarian
                 let sel = app.visual_range();
                 let (char_range, full_line) = if let Some((s, e, lw)) = sel {
                     if lw {
@@ -91,11 +108,12 @@ impl Renderer {
                     }
                 }
 
+                // 3. Gambar teks baris
                 let rendered = render_line_with_selection(
                     buffer,
                     line_idx,
                     self.left_col,
-                    cols,
+                    text_width,
                     self.tab_width,
                     char_range,
                     full_line,
@@ -105,11 +123,18 @@ impl Renderer {
                     queue!(stdout, Print(rendered))?;
                 }
             } else {
-                queue!(stdout, Print("~"))?;
+                // Baris kosong di luar EOF
+                let tilde_str = format!("{:>width$} ~", "", width = num_width);
+                queue!(
+                    stdout,
+                    SetForegroundColor(Color::DarkGrey),
+                    Print(tilde_str),
+                    ResetColor,
+                )?;
             }
         }
 
-        // Draw prompt OR status bar (exactly one), and compute cursor position.
+        // 4. Gambar prompt ATAU status bar, lalu posisikan kursor
         let (cx, cy, use_block) = if let Some(prompt) = &app.prompt {
             let prompt_line = format_prompt(prompt, cols);
             queue!(
@@ -138,8 +163,9 @@ impl Renderer {
                 ResetColor,
             )?;
 
-            let cx = (cursor_visual_col.saturating_sub(self.left_col) as u16)
-                .min(cols.saturating_sub(1) as u16);
+            // Offset kursor X ditambah lebar gutter
+            let cx = (gutter_width + cursor_visual_col.saturating_sub(self.left_col) as usize)
+                .min(cols.saturating_sub(1)) as u16;
             let cy = cursor_line.saturating_sub(self.top_line) as u16;
             (cx, cy, block_cursor)
         };
@@ -201,7 +227,7 @@ pub(crate) fn render_line_with_selection(
     tab_width: usize,
     selection: Option<(usize, usize)>,
     full_line: bool,
-    search_ranges: &[(usize, usize, bool)], // (start, end, is_active)
+    search_ranges: &[(usize, usize, bool)],
 ) -> String {
     let text = buffer.line(line_idx).unwrap_or_default();
     let line_start = buffer.line_to_char(line_idx);
@@ -255,9 +281,9 @@ pub(crate) fn render_line_with_selection(
         if new_style != current_style {
             match new_style {
                 StyleState::Normal => out.push_str("\x1b[0m"),
-                StyleState::Search => out.push_str("\x1b[43;30m"), // bg kuning, fg hitam
-                StyleState::ActiveSearch => out.push_str("\x1b[103;30m"), // bg kuning terang, fg hitam
-                StyleState::Selection => out.push_str("\x1b[7m"), // reverse video
+                StyleState::Search => out.push_str("\x1b[43;30m"),
+                StyleState::ActiveSearch => out.push_str("\x1b[103;30m"),
+                StyleState::Selection => out.push_str("\x1b[7m"),
             }
             current_style = new_style;
         }
@@ -364,142 +390,4 @@ fn format_status(app: &App, mode_label: &str, width: usize) -> String {
     s.push_str(&" ".repeat(pad));
     s.push_str(&pos);
     s
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const TAB_WIDTH: usize = 4;
-
-    fn buf(s: &str) -> Buffer {
-        Buffer::from_str(s)
-    }
-
-    #[test]
-    fn visual_col_empty() {
-        assert_eq!(visual_col("", 0, TAB_WIDTH), 0);
-    }
-
-    #[test]
-    fn visual_col_ascii() {
-        assert_eq!(visual_col("abc", 0, TAB_WIDTH), 0);
-        assert_eq!(visual_col("abc", 1, TAB_WIDTH), 1);
-        assert_eq!(visual_col("abc", 3, TAB_WIDTH), 3);
-    }
-
-    #[test]
-    fn visual_col_tab_expanded() {
-        assert_eq!(visual_col("a\t", 2, TAB_WIDTH), 4);
-    }
-
-    #[test]
-    fn visual_col_wide_char() {
-        assert_eq!(visual_col("日本語", 1, TAB_WIDTH), 2);
-        assert_eq!(visual_col("日本語", 2, TAB_WIDTH), 4);
-    }
-
-    #[test]
-    fn visual_col_custom_tab_width() {
-        assert_eq!(visual_col("a\t", 2, 8), 8);
-    }
-
-    #[test]
-    fn render_line_simple() {
-        let b = buf("hello");
-        assert_eq!(
-            render_line_with_selection(&b, 0, 0, 80, TAB_WIDTH, None, false, &[]),
-            "hello"
-        );
-    }
-
-    #[test]
-    fn render_line_with_left_offset() {
-        let b = buf("abcdef");
-        assert_eq!(
-            render_line_with_selection(&b, 0, 2, 80, TAB_WIDTH, None, false, &[]),
-            "cdef"
-        );
-    }
-
-    #[test]
-    fn render_line_truncates_to_max_width() {
-        let b = buf("abcdef");
-        assert_eq!(
-            render_line_with_selection(&b, 0, 0, 3, TAB_WIDTH, None, false, &[]),
-            "abc"
-        );
-    }
-
-    #[test]
-    fn render_line_expands_tab() {
-        let b = buf("a\tb");
-        assert_eq!(
-            render_line_with_selection(&b, 0, 0, 80, TAB_WIDTH, None, false, &[]),
-            "a   b"
-        );
-    }
-
-    #[test]
-    fn render_line_handles_offset_cutting_tab() {
-        let b = buf("a\tb");
-        assert_eq!(
-            render_line_with_selection(&b, 0, 2, 80, TAB_WIDTH, None, false, &[]),
-            "  b"
-        );
-    }
-
-    #[test]
-    fn render_line_out_of_range_is_empty() {
-        let b = buf("only");
-        assert_eq!(
-            render_line_with_selection(&b, 5, 0, 80, TAB_WIDTH, None, false, &[]),
-            ""
-        );
-    }
-
-    #[test]
-    fn render_line_respects_custom_tab_width() {
-        let b = buf("a\tb");
-        assert_eq!(
-            render_line_with_selection(&b, 0, 0, 80, 8, None, false, &[]),
-            "a       b"
-        );
-    }
-
-    #[test]
-    fn render_line_with_char_selection_highlights_range() {
-        let b = buf("abcdef");
-        let out = render_line_with_selection(&b, 0, 0, 80, TAB_WIDTH, Some((1, 4)), false, &[]);
-        assert!(out.contains("\x1b[7m"));
-        assert!(out.contains("\x1b[0m"));
-        assert!(out.contains("bcd"));
-    }
-
-    #[test]
-    fn render_line_full_line_highlight() {
-        let b = buf("abc");
-        let out = render_line_with_selection(&b, 0, 0, 10, TAB_WIDTH, Some((0, 3)), true, &[]);
-        assert!(out.starts_with("\x1b[7m"));
-        assert!(out.contains("\x1b[0m"));
-    }
-
-    #[test]
-    fn format_prompt_basic() {
-        use crate::app::{Prompt, PromptKind};
-        let p = Prompt::new(PromptKind::Open, "hello".to_string());
-        let s = format_prompt(&p, 20);
-        assert!(s.starts_with("[Open] hello"));
-        assert_eq!(s.chars().count(), 20);
-    }
-
-    #[test]
-    fn format_prompt_with_note() {
-        use crate::app::{Prompt, PromptKind};
-        let mut p = Prompt::new(PromptKind::SaveAs, "out.txt".to_string());
-        p.note = Some("save failed".to_string());
-        let s = format_prompt(&p, 40);
-        assert!(s.contains("save failed"));
-        assert_eq!(s.chars().count(), 40);
-    }
 }

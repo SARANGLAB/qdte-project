@@ -15,6 +15,7 @@ impl Keymap for NormalKeymap {
 
         Some(match (key.code, key.modifiers) {
             // App commands
+            (Esc, _) => Command::ClearSearch,
             (Char('S'), m) if m.contains(M::CONTROL) => Command::SaveAs,
             (Char('s'), m) if m.contains(M::CONTROL) && m.contains(M::SHIFT) => Command::SaveAs,
             (F(2), M::NONE) => Command::SaveAs,
