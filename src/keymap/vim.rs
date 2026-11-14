@@ -54,7 +54,12 @@ impl VimKeymap {
 
         // Global shortcuts
         match (key.code, key.modifiers) {
-            (Char(':'), M::SHIFT) => return Some(Command::EnterCommandPrompt),
+            // Gunakan `_` untuk simbol/huruf besar agar kompatibel dengan WSL2
+            (Char(':'), _) => return Some(Command::EnterCommandPrompt),
+            (Char('/'), _) => return Some(Command::Search),
+            (Char('n'), _) => return Some(Command::SearchNext),
+            (Char('N'), _) => return Some(Command::SearchPrev),
+            
             (Char('S'), m) if m.contains(M::CONTROL) => return Some(Command::SaveAs),
             (Char('s'), m) if m.contains(M::CONTROL) && m.contains(M::SHIFT) => {
                 return Some(Command::SaveAs);
@@ -68,11 +73,8 @@ impl VimKeymap {
             (Char('r'), M::CONTROL) => return Some(Command::Editor(Action::Redo)),
             (Esc, _) => {
                 self.pending = Pending::None;
-                return Some(Command::ClearSearch); 
+                return Some(Command::ClearSearch);
             }
-            (Char('/'), M::NONE) => return Some(Command::Search),
-            (Char('n'), M::NONE) => return Some(Command::SearchNext),
-            (Char('N'), M::SHIFT) => return Some(Command::SearchPrev),
             _ => {}
         }
 
@@ -106,8 +108,11 @@ impl VimKeymap {
             (Char('k'), M::NONE) => Command::Editor(Action::MoveUp),
             (Char('l'), M::NONE) => Command::Editor(Action::MoveRightLineClamped),
             (Char('0'), M::NONE) => Command::Editor(Action::MoveLineStart),
-            (Char('$'), M::SHIFT) => Command::Editor(Action::MoveLineEndBlock),
-            (Char('G'), M::SHIFT) => Command::Editor(Action::MoveBufferEnd),
+            
+            // Karakter Shift/WSL2
+            (Char('$'), _) => Command::Editor(Action::MoveLineEndBlock),
+            (Char('G'), _) => Command::Editor(Action::MoveBufferEnd),
+            
             (Char('g'), M::NONE) => {
                 self.pending = Pending::G;
                 return None;
@@ -117,11 +122,11 @@ impl VimKeymap {
                 Command::Editor(Action::MoveRightLineClamped),
                 Command::SetMode(Mode::Insert),
             ]),
-            (Char('I'), M::SHIFT) => Command::Seq(vec![
+            (Char('I'), _) => Command::Seq(vec![
                 Command::Editor(Action::MoveLineStart),
                 Command::SetMode(Mode::Insert),
             ]),
-            (Char('A'), M::SHIFT) => Command::Seq(vec![
+            (Char('A'), _) => Command::Seq(vec![
                 Command::Editor(Action::MoveLineEnd),
                 Command::SetMode(Mode::Insert),
             ]),
@@ -130,7 +135,7 @@ impl VimKeymap {
                 Command::Editor(Action::InsertNewline),
                 Command::SetMode(Mode::Insert),
             ]),
-            (Char('O'), M::SHIFT) => Command::Seq(vec![
+            (Char('O'), _) => Command::Seq(vec![
                 Command::Editor(Action::MoveLineStart),
                 Command::Editor(Action::InsertNewline),
                 Command::Editor(Action::MoveUp),
@@ -144,17 +149,17 @@ impl VimKeymap {
             (Char('w'), M::NONE) => Command::Editor(Action::WordForward),
             (Char('b'), M::NONE) => Command::Editor(Action::WordBackward),
             (Char('e'), M::NONE) => Command::Editor(Action::WordEnd),
-            (Char('W'), M::SHIFT) => Command::Editor(Action::WordForwardBig),
-            (Char('B'), M::SHIFT) => Command::Editor(Action::WordBackwardBig),
-            (Char('E'), M::SHIFT) => Command::Editor(Action::WordEndBig),
+            (Char('W'), _) => Command::Editor(Action::WordForwardBig),
+            (Char('B'), _) => Command::Editor(Action::WordBackwardBig),
+            (Char('E'), _) => Command::Editor(Action::WordEndBig),
             (Char('y'), M::NONE) => {
                 self.pending = Pending::Y;
                 return None;
             }
             (Char('p'), M::NONE) => Command::Editor(Action::PasteAfter),
-            (Char('P'), M::SHIFT) => Command::Editor(Action::PasteBefore),
+            (Char('P'), _) => Command::Editor(Action::PasteBefore),
             (Char('v'), M::NONE) => Command::EnterVisual(Mode::Visual),
-            (Char('V'), M::SHIFT) => Command::EnterVisual(Mode::VisualLine),
+            (Char('V'), _) => Command::EnterVisual(Mode::VisualLine),
             _ => return None,
         })
     }
@@ -200,7 +205,7 @@ impl VimKeymap {
                 Mode::VisualLine => Command::SetMode(Mode::Visual),
                 _ => unreachable!(),
             },
-            (Char('V'), M::SHIFT) => match mode {
+            (Char('V'), _) => match mode {
                 Mode::VisualLine => Command::ExitVisual,
                 Mode::Visual => Command::SetMode(Mode::VisualLine),
                 _ => unreachable!(),
@@ -214,14 +219,17 @@ impl VimKeymap {
             (Char('k'), M::NONE) => Command::Editor(Action::MoveUp),
             (Char('l'), M::NONE) => Command::Editor(Action::MoveRightLineClamped),
             (Char('0'), M::NONE) => Command::Editor(Action::MoveLineStart),
-            (Char('$'), M::SHIFT) => Command::Editor(Action::MoveLineEndBlock),
+            
+            // Karakter Shift/WSL2
+            (Char('$'), _) => Command::Editor(Action::MoveLineEndBlock),
+            (Char('G'), _) => Command::Editor(Action::MoveBufferEnd),
+            
             (Char('w'), M::NONE) => Command::Editor(Action::WordForward),
             (Char('b'), M::NONE) => Command::Editor(Action::WordBackward),
             (Char('e'), M::NONE) => Command::Editor(Action::WordEnd),
-            (Char('W'), M::SHIFT) => Command::Editor(Action::WordForwardBig),
-            (Char('B'), M::SHIFT) => Command::Editor(Action::WordBackwardBig),
-            (Char('E'), M::SHIFT) => Command::Editor(Action::WordEndBig),
-            (Char('G'), M::SHIFT) => Command::Editor(Action::MoveBufferEnd),
+            (Char('W'), _) => Command::Editor(Action::WordForwardBig),
+            (Char('B'), _) => Command::Editor(Action::WordBackwardBig),
+            (Char('E'), _) => Command::Editor(Action::WordEndBig),
 
             (Char('S'), m) if m.contains(M::CONTROL) => Command::SaveAs,
             (F(2), M::NONE) => Command::SaveAs,
