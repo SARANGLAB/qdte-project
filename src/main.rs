@@ -11,6 +11,14 @@ use qdte::terminal::input::read_key;
 use qdte::terminal::renderer::Renderer;
 use qdte::terminal::TerminalGuard;
 
+use crossterm::{
+    cursor::MoveTo,
+    queue,
+    style::{Print, SetBackgroundColor, SetForegroundColor},
+    terminal::{Clear, ClearType},
+};
+use unicode_width::UnicodeWidthStr;
+
 fn main() -> ExitCode {
     let args = cli::args::parse();
 
@@ -150,6 +158,11 @@ fn run(app: &mut App, vim: bool, config: &Config) -> std::io::Result<()> {
 
     app.mode = dispatcher.initial_mode();
 
+    // Tampilkan Splash Screen jika ini adalah buffer kosong (tanpa file)
+    if app.path.is_none() && app.editor.buffer().is_empty() {
+        show_splash_screen(app)?;
+    }
+
     loop {
         if app.should_quit {
             break;
@@ -193,6 +206,120 @@ fn run(app: &mut App, vim: bool, config: &Config) -> std::io::Result<()> {
             break;
         }
     }
+    Ok(())
+}
+
+fn show_splash_screen(app: &App) -> std::io::Result<()> {
+    let (cols, rows) = crossterm::terminal::size()?;
+    let ui = &app.theme_manager.active().ui;
+    let mut stdout = io::stdout();
+
+    queue!(
+        stdout,
+        Clear(ClearType::All),
+        SetBackgroundColor(ui.bg),
+        SetForegroundColor(ui.fg)
+    )?;
+
+    let art = r#"
+       ██████╗ ██████╗ ████████╗███████╗
+      ██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝
+      ██║   ██║██║  ██║   ██║   █████╗  
+      ██║▄▄ ██║██║  ██║   ██║   ██╔══╝  
+      ╚██████╔╝██████╔╝   ██║   ███████╗
+       ╚══▀▀═╝ ╚═════╝    ╚═╝   ╚══════╝
+    "#;
+
+    let quotes = [
+        "\"The quick brown fox jumps over the lazy dog.\"",
+        "\"Also try Sky CLI Music Player!\"",
+        "\"Quick & Dirty Text Editor. Simple, lightweight, native.\"",
+        "\"Talk is cheap. Show me the code. — Linus Torvalds\"",
+        "\"First, solve the problem. Then, write the code.\"",
+        "\"Code is like humor. When you have to explain it, it’s bad.\"",
+        "\"Explore more projects from SARANGLAB!\"",
+        "\"Build what you need. Keep what works. — SARANGLAB Community\"",
+        "\"And the universe said I love you. — Julian Gough\"",
+        "\"Complexity is easy to create. Simplicity takes effort.\"",
+    ];
+
+    // Pilih quote acak berdasarkan waktu saat ini
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let quote = quotes[(now as usize) % quotes.len()];
+
+    let art_lines: Vec<&str> = art.lines().collect();
+    let art_height = art_lines.len();
+    
+    // Hitung posisi vertikal (ditambah offset karena ada teks donasi)
+    let start_y = rows.saturating_sub(art_height as u16 + 9) / 2;
+    
+    // 1. Gambar ASCII Art
+    for (i, line) in art_lines.iter().enumerate() {
+        let width = UnicodeWidthStr::width(*line);
+        let start_x = cols.saturating_sub(width as u16) / 2;
+        queue!(
+            stdout,
+            MoveTo(start_x, start_y + i as u16),
+            SetForegroundColor(ui.selection), // Warna ASCII Art pakai warna seleksi tema
+            Print(line)
+        )?;
+    }
+
+    // 2. Gambar Quote Acak
+    let q_width = UnicodeWidthStr::width(quote);
+    let q_x = cols.saturating_sub(q_width as u16) / 2;
+    queue!(
+        stdout,
+        MoveTo(q_x, start_y + art_height as u16 + 2),
+        SetForegroundColor(ui.fg),
+        Print(quote)
+    )?;
+
+    // 3. Gambar Teks Donasi Persisten
+    let donation_text = "Help donate to victims of forest fires & national disasters in Indonesia";
+    let donation_link = "https://digital.dompetdhuafa.org/"; 
+
+    let d_width = UnicodeWidthStr::width(donation_text);
+    let d_x = cols.saturating_sub(d_width as u16) / 2;
+    queue!(
+        stdout,
+        MoveTo(d_x, start_y + art_height as u16 + 4),
+        SetForegroundColor(ui.statusbar_fg), 
+        Print(donation_text)
+    )?;
+
+    let link_width = UnicodeWidthStr::width(donation_link);
+    let link_x = cols.saturating_sub(link_width as u16) / 2;
+    queue!(
+        stdout,
+        MoveTo(link_x, start_y + art_height as u16 + 5),
+        SetForegroundColor(ui.cursor), 
+        Print(donation_link)
+    )?;
+
+    // 4. Gambar Petunjuk "Press any key"
+    let hint = "Press any key to continue...";
+    let hint_width = UnicodeWidthStr::width(hint);
+    let hint_x = cols.saturating_sub(hint_width as u16) / 2;
+    queue!(
+        stdout,
+        MoveTo(hint_x, start_y + art_height as u16 + 7),
+        SetForegroundColor(ui.gutter),
+        Print(hint)
+    )?;
+
+    stdout.flush()?;
+
+    // Tunggu pengguna menekan tombol apa saja
+    let _ = read_key()?;
+
+    // Bersihkan layar sebelum masuk ke editor
+    queue!(stdout, Clear(ClearType::All), MoveTo(0, 0))?;
+    stdout.flush()?;
+
     Ok(())
 }
 
