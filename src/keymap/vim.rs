@@ -71,6 +71,7 @@ impl VimKeymap {
                 return Some(Command::Quit);
             }
             (Char('r'), M::CONTROL) => return Some(Command::Editor(Action::Redo)),
+            (Char('~'), _) => return Some(Command::ToggleCase),
             (Esc, _) => {
                 self.pending = Pending::None;
                 return Some(Command::ClearSearch);
@@ -238,6 +239,7 @@ impl VimKeymap {
             (Char('x'), M::CONTROL) | (Char('q'), M::CONTROL) | (Char('c'), M::CONTROL) => {
                 Command::Quit
             }
+            (Char('~'), _) => Command::ToggleVisualSelection,
             _ => return None,
         })
     }

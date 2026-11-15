@@ -39,6 +39,10 @@ pub enum Action {
     YankRange { start: usize, end: usize, linewise: bool },
     PasteAfter,
     PasteBefore,
+
+    // Toggle Case
+    ToggleCase,
+    ToggleCaseRange { start: usize, end: usize },
 }
 
 impl Action {
@@ -56,6 +60,8 @@ impl Action {
                 | Action::PasteBefore
                 | Action::Undo
                 | Action::Redo
+                | Action::ToggleCase           
+                | Action::ToggleCaseRange { .. } 
         )
     }
 }

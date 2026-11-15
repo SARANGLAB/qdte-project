@@ -133,6 +133,9 @@ impl Buffer {
         }
         Ok(self.rope.slice(range).chars().collect())
     }
+    pub fn chunks(&self) -> impl Iterator<Item = &str> {
+        self.rope.chunks()
+    }
 }
 
 impl Default for Buffer {

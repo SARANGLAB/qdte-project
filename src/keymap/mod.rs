@@ -26,6 +26,8 @@ pub enum Command {
     SearchPrev,
     ClearSearch,
     OpenThemePicker,
+    ToggleCase,
+    ToggleVisualSelection,
 }
 
 pub trait Keymap {

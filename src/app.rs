@@ -592,6 +592,33 @@ impl App {
                     self.open_theme_picker();
                 }
             }
+            "pwd" => {
+                match std::env::current_dir() {
+                    Ok(path) => self.message = Some(format!("pwd: {}", path.display())),
+                    Err(e) => self.message = Some(format!("pwd error: {}", e)),
+                }
+            }
+            "cd" => {
+                if let Some(path) = arg {
+                    if let Err(e) = std::env::set_current_dir(path) {
+                        self.message = Some(format!("cd error: {}", e));
+                    } else {
+                        self.message = Some(format!("cd: {}", path));
+                    }
+                } else {
+                    // Jika `:cd` tanpa argumen, kembali ke HOME
+                    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+                    if let Some(h) = home {
+                        if let Err(e) = std::env::set_current_dir(&h) {
+                            self.message = Some(format!("cd error: {}", e));
+                        } else {
+                            self.message = Some(format!("cd: {}", PathBuf::from(h).display()));
+                        }
+                    } else {
+                        self.message = Some("cd error: HOME not set".into());
+                    }
+                }
+            }
             _ => {
                 self.message = Some(format!("unknown command: {}", name));
             }

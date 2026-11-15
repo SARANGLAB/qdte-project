@@ -505,5 +505,20 @@ fn dispatch_command(app: &mut App, cmd: Command, quit_armed: &mut bool) -> bool 
             *quit_armed = false;
             false
         }
+        Command::ToggleCase => {
+            app.message = None;
+            let _ = app.editor.apply(qdte::editor::Action::ToggleCase);
+            *quit_armed = false;
+            false
+        }
+        Command::ToggleVisualSelection => {
+            if let Some((start, end, _)) = app.visual_range() {
+                let _ = app.editor.apply(qdte::editor::Action::ToggleCaseRange { start, end });
+            }
+            app.mode = qdte::editor::Mode::Normal;
+            app.selection_anchor = None;
+            *quit_armed = false;
+            false
+        }
     }
 }

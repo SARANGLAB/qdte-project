@@ -34,6 +34,7 @@ pub struct Editor {
     tab_width: usize,
     expand_tab: bool,
     cached_hash: RefCell<Option<u64>>,
+    pub dirty_from: Option<usize>,
 }
 
 impl Editor {
@@ -46,6 +47,7 @@ impl Editor {
             tab_width: 4,
             expand_tab: false,
             cached_hash: RefCell::new(None),
+            dirty_from: None,
         }
     }
 
@@ -55,7 +57,9 @@ impl Editor {
         }
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         use std::hash::{Hash, Hasher};
-        self.buffer.as_string().hash(&mut hasher);
+        for chunk in self.buffer.chunks() {
+            chunk.hash(&mut hasher);
+        }
         let h = hasher.finish();
         *self.cached_hash.borrow_mut() = Some(h);
         h
@@ -69,7 +73,8 @@ impl Editor {
             register: Register::default(),
             tab_width: 4,
             expand_tab: false,
-            cached_hash: RefCell::new(None), // <-- Diperbaiki
+            cached_hash: RefCell::new(None), 
+            dirty_from: None,
         }
     }
 
@@ -81,7 +86,8 @@ impl Editor {
             register: Register::default(),
             tab_width: 4,
             expand_tab: false,
-            cached_hash: RefCell::new(None), // <-- Diperbaiki
+            cached_hash: RefCell::new(None), 
+            dirty_from: None,
         }
     }
 
@@ -117,6 +123,10 @@ impl Editor {
     pub fn set_cursor(&mut self, char_idx: usize) {
         self.cursor = Cursor::at(char_idx);
         self.cursor.clamp(&self.buffer);
+    }
+
+    pub fn take_dirty_from(&mut self) -> Option<usize> {
+        self.dirty_from.take()
     }
 
     /// Apply an action. Mutates buffer and/or cursor as appropriate.
@@ -396,8 +406,79 @@ impl Editor {
                     self.cursor.clamp(&self.buffer);
                 }
             }
+            Action::ToggleCase => {
+                let idx = self.cursor.char_idx();
+                if let Some(c) = self.buffer.char_at(idx) {
+                    let new_c = if c.is_lowercase() {
+                        c.to_uppercase().next().unwrap_or(c)
+                    } else if c.is_uppercase() {
+                        c.to_lowercase().next().unwrap_or(c)
+                    } else {
+                        c
+                    };
+
+                    if new_c != c {
+                        let cursor_before = idx;
+                        let removed = self.buffer.remove(idx..idx + 1)?;
+                        self.buffer.insert_char(idx, new_c)?;
+                        self.cursor = Cursor::at((idx + 1).min(self.buffer.len_chars()));
+                        let cursor_after = self.cursor.char_idx();
+
+                        self.history.record(Change {
+                            char_idx: idx,
+                            removed,
+                            inserted: new_c.to_string(),
+                            cursor_before,
+                            cursor_after,
+                            kind: ChangeKind::Structural,
+                        });
+                    } else {
+                        // Jika bukan huruf (misal angka), tetap maju
+                        self.cursor = Cursor::at((idx + 1).min(self.buffer.len_chars()));
+                    }
+                }
+            }
+            Action::ToggleCaseRange { start, end } => {
+                if start < end {
+                    let cursor_before = self.cursor.char_idx();
+                    let removed = self.buffer.remove(start..end)?;
+                    let inserted: String = removed
+                        .chars()
+                        .map(|c| {
+                            if c.is_lowercase() {
+                                c.to_uppercase().next().unwrap_or(c)
+                            } else if c.is_uppercase() {
+                                c.to_lowercase().next().unwrap_or(c)
+                            } else {
+                                c
+                            }
+                        })
+                        .collect();
+
+                    self.buffer.insert_str(start, &inserted)?;
+                    self.cursor = Cursor::at(start);
+                    self.cursor.clamp(&self.buffer);
+                    let cursor_after = self.cursor.char_idx();
+
+                    self.history.record(Change {
+                        char_idx: start,
+                        removed,
+                        inserted,
+                        cursor_before,
+                        cursor_after,
+                        kind: ChangeKind::Structural,
+                    });
+                }
+            }
         }
-        *self.cached_hash.borrow_mut() = None;
+        if action.is_mutation() {
+            *self.cached_hash.borrow_mut() = None;
+            let line = self.cursor.line(&self.buffer);
+            self.dirty_from = match self.dirty_from {
+                Some(l) => Some(l.min(line)),
+                None => Some(line),
+            };
+        }
         Ok(())
     }
     pub fn undo(&mut self) -> Result<(), EditorError> {
@@ -411,10 +492,19 @@ impl Editor {
         if !change.removed.is_empty() {
             self.buffer.insert_str(change.char_idx, &change.removed)?;
         }
+        
         self.cursor = Cursor::at(change.cursor_before);
         self.cursor.clamp(&self.buffer);
         self.history.push_redo(change);
-        *self.cached_hash.borrow_mut() = None; // <-- Diperbaiki
+
+        // Selalu perbarui cache dan dirty_from (tanpa if)
+        *self.cached_hash.borrow_mut() = None;
+        let line = self.cursor.line(&self.buffer);
+        self.dirty_from = match self.dirty_from {
+            Some(l) => Some(l.min(line)),
+            None => Some(line),
+        };
+        
         Ok(())
     }
     pub fn redo(&mut self) -> Result<(), EditorError> {
@@ -428,10 +518,19 @@ impl Editor {
         if !change.inserted.is_empty() {
             self.buffer.insert_str(change.char_idx, &change.inserted)?;
         }
+        
         self.cursor = Cursor::at(change.cursor_after);
         self.cursor.clamp(&self.buffer);
         self.history.push_undo(change);
-        *self.cached_hash.borrow_mut() = None; // <-- Diperbaiki
+
+        // Selalu perbarui cache dan dirty_from (tanpa if)
+        *self.cached_hash.borrow_mut() = None;
+        let line = self.cursor.line(&self.buffer);
+        self.dirty_from = match self.dirty_from {
+            Some(l) => Some(l.min(line)),
+            None => Some(line),
+        };
+        
         Ok(())
     }
 }

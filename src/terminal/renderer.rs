@@ -48,7 +48,11 @@ impl Renderer {
         }
     }
 
-    pub fn render(&mut self, app: &App, mode_label: &str, block_cursor: bool) -> io::Result<()> {
+    pub fn render(&mut self, app: &mut App, mode_label: &str, block_cursor: bool) -> io::Result<()> {
+        let current_hash = app.editor.hash();
+        let current_theme = app.theme_manager.active().name.clone();
+        let dirty_from = app.editor.take_dirty_from();
+
         let (cols, rows) = terminal::size()?;
         let cols = cols as usize;
         let rows = rows as usize;
@@ -82,29 +86,50 @@ impl Renderer {
 
         queue!(stdout, SetBackgroundColor(ui.bg), SetForegroundColor(ui.fg), MoveTo(0, 0), Clear(ClearType::All))?;
 
-        // --- CACHE SYNTAX HIGHLIGHTING ---
-        let current_hash = app.editor.hash();
-        let current_theme = app.theme_manager.active().name.clone();
+        // --- LOGIKA CACHE SYNTAX HIGHLIGHTING ---
+        // Hanya hitung syntax sampai batas bawah layar yang terlihat
+        let render_end = (self.top_line + content_height).min(total_lines);
 
-        if self.cached_path != app.path || self.cached_theme != current_theme || self.cached_hash != current_hash {
+        if self.cached_path != app.path || self.cached_theme != current_theme {
+            // Reset total jika ganti file atau ganti tema
             self.cached_spans.clear();
+            self.cached_hash = 0;
+            self.cached_path = app.path.clone();
+            self.cached_theme = current_theme;
+        }
+
+        if self.cached_hash != current_hash {
+            let start_line = dirty_from.unwrap_or(0);
+            // Hanya potong cache jika baris yang berubah berada di dalam cache kita
+            if start_line < self.cached_spans.len() {
+                self.cached_spans.truncate(start_line);
+            }
+            self.cached_hash = current_hash;
+        }
+
+        // Jika cache kita belum mencapai batas bawah layar, hitung sisanya
+        if self.cached_spans.len() < render_end {
             let syntax = get_syntax_for_path(app.path.as_deref());
             let mut highlighter = HighlightLines::new(syntax, &active_theme.syntect);
             
-            for line_idx in 0..total_lines {
+            // Fast-forward state syntect sampai ke baris terakhir yang ada di cache
+            for line_idx in 0..self.cached_spans.len() {
+                let line_text = buffer.line(line_idx).unwrap_or_default();
+                let line_nl = format!("{}\n", line_text);
+                let _ = highlighter.highlight_line(&line_nl, &PS);
+            }
+            
+            // Hitung warna dari baris cache terakhir sampai batas bawah layar
+            for line_idx in self.cached_spans.len()..render_end {
                 let line_text = buffer.line(line_idx).unwrap_or_default();
                 let line_nl = format!("{}\n", line_text);
                 let spans = highlighter.highlight_line(&line_nl, &PS).unwrap_or_default();
                 let owned_spans = spans.into_iter().map(|(s, t)| (s, t.to_string())).collect();
                 self.cached_spans.push(owned_spans);
             }
-            
-            self.cached_path = app.path.clone();
-            self.cached_theme = current_theme;
-            self.cached_hash = current_hash;
         }
-        // ---------------------------------
 
+        // --- GAMBAR TEKS ---
         for row in 0..content_height {
             let line_idx = self.top_line + row;
             queue!(stdout, MoveTo(0, row as u16))?;
@@ -119,10 +144,8 @@ impl Renderer {
                 )?;
 
                 let line_text = buffer.line(line_idx).unwrap_or_default();
-                
-                // Baca dari cache
                 let spans = &self.cached_spans[line_idx];
-                let span_refs: Vec<(Style, &str)> = spans.iter().map(|(s, t)| (*s, t.as_str())).collect();
+                let span_refs: Vec<(syntect::highlighting::Style, &str)> = spans.iter().map(|(s, t)| (*s, t.as_str())).collect();
 
                 let sel = app.visual_range();
                 let (char_range, full_line) = if let Some((s, e, lw)) = sel {
@@ -159,7 +182,7 @@ impl Renderer {
                     char_range,
                     full_line,
                     &search_ranges,
-                    &span_refs, // Gunakan span_refs
+                    &span_refs,
                     ui,
                 );
                 if !rendered.is_empty() {
@@ -175,12 +198,12 @@ impl Renderer {
             }
         }
 
-        // Gambar Theme Picker di atas segalanya
+        // --- GAMBAR POPUP TEMA (JIKA ADA) ---
         if let Some(picker) = &app.theme_picker {
             draw_theme_picker(&mut stdout, picker, ui, cols, rows)?;
         }
 
-        // 5. Status Bar / Prompt
+        // --- GAMBAR STATUS BAR / PROMPT & KURSOR ---
         let (cx, cy, use_block) = if let Some(prompt) = &app.prompt {
             let prompt_line = format_prompt(prompt, cols);
             queue!(
@@ -223,7 +246,6 @@ impl Renderer {
             SetCursorStyle::SteadyBar
         };
         
-        // Sembunyikan kursor blok saat Theme Picker terbuka
         let final_style = if app.theme_picker.is_some() {
             SetCursorStyle::DefaultUserShape
         } else {
