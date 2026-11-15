@@ -155,6 +155,7 @@ pub struct App {
     pub theme_manager: ThemeManager,
     pub theme_picker: Option<ThemePickerState>,
     saved_hash: Option<u64>,
+    pub pending_shell_command: Option<String>,
 }
 
 impl App {
@@ -180,6 +181,7 @@ impl App {
             theme_manager,
             theme_picker: None,
             saved_hash,
+            pending_shell_command: None,
         }
     }
 
@@ -206,6 +208,7 @@ impl App {
             theme_manager,
             theme_picker: None,
             saved_hash,
+            pending_shell_command: None,
         })
     }
 
@@ -531,6 +534,16 @@ impl App {
     }
 
     fn execute_command(&mut self, cmd: &str) {
+        if let Some(shell_cmd) = cmd.strip_prefix('!') {
+            let shell_cmd = shell_cmd.trim();
+            if shell_cmd.is_empty() {
+                self.message = Some("usage: :!<command>".into());
+            } else {
+                self.pending_shell_command = Some(shell_cmd.to_string());
+                self.message = None;
+            }
+            return; // Keluar dari fungsi karena sudah ditangani
+        }
         let mut parts = cmd.splitn(2, char::is_whitespace);
         let name = parts.next().unwrap_or("").trim();
         let arg = parts.next().map(|s| s.trim());
@@ -601,7 +614,6 @@ impl App {
             "cd" => {
                 if let Some(arg_str) = arg {
                     let mut path_str = arg_str.to_string();
-                    // Trik untuk Windows: jika user hanya mengetik "D:", ubah menjadi "D:\"
                     #[cfg(target_os = "windows")]
                     {
                         if path_str.len() == 2 && path_str.ends_with(':') {
@@ -632,6 +644,14 @@ impl App {
                     } else {
                         self.message = Some("cd error: HOME not set".into());
                     }
+                }
+            }
+            "!" => {
+                if let Some(cmd) = arg {
+                    self.pending_shell_command = Some(cmd.to_string());
+                    self.message = None;
+                } else {
+                    self.message = Some("usage: :!<command>".into());
                 }
             }
             _ => {

@@ -151,7 +151,7 @@ fn run_tutor(is_vim: bool) {
 }
 
 fn run(app: &mut App, vim: bool, config: &Config) -> std::io::Result<()> {
-    let _guard = TerminalGuard::new()?;
+    let mut _guard = TerminalGuard::new()?;
     let mut dispatcher = Dispatcher::for_vim_mode(vim);
     let mut renderer = Renderer::new(config.tab_width);
     let mut quit_armed = false;
@@ -167,6 +167,55 @@ fn run(app: &mut App, vim: bool, config: &Config) -> std::io::Result<()> {
         if app.should_quit {
             break;
         }
+
+        // --- PINDAHKAN BLOK SHELL COMMAND KE SINI ---
+        if let Some(cmd) = app.pending_shell_command.take() {
+            // 1. Keluar dari TUI (raw mode & alternate screen)
+            _guard.suspend()?;
+
+            // 2. Bersihkan layar dan tampilkan teks segera
+            use crossterm::{execute, cursor::MoveTo, terminal::{Clear, ClearType}, style::Print};
+            let mut out = std::io::stdout();
+            let _ = execute!(out, Clear(ClearType::All), MoveTo(0, 0));
+            let _ = execute!(out, Print(format!("Executing: {}\n\n", cmd)));
+            let _ = out.flush();
+
+            // 3. Jalankan perintah shell
+            #[cfg(target_os = "windows")]
+            let status = std::process::Command::new("cmd")
+                .arg("/C")
+                .arg(&cmd)
+                .status();
+
+            #[cfg(not(target_os = "windows"))]
+            let status = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&cmd)
+                .status();
+
+            if let Err(e) = status {
+                let _ = execute!(out, Print(format!("\nFailed to execute: {}\n", e)));
+            }
+
+            // 4. Tampilkan pesan untuk kembali
+            let _ = execute!(out, Print("\nPress any key to return to QDTE..."));
+            let _ = out.flush();
+
+            // 5. Tunggu user menekan tombol apa saja
+            let _ = crossterm::terminal::enable_raw_mode();
+            let _ = read_key();
+            let _ = crossterm::terminal::disable_raw_mode();
+
+            // 6. Kembali ke TUI
+            _guard.resume()?;
+            
+            // 7. Paksa render ulang editor pada iterasi berikutnya
+            renderer.invalidate();
+            
+            // Lanjut ke iterasi berikutnya tanpa merender ulang UI yang lama
+            continue;
+        }
+        // ---------------------------------------------
 
         let mode_label = if dispatcher.shows_mode() {
             app.mode.label()

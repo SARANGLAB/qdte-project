@@ -32,6 +32,21 @@ impl TerminalGuard {
             self.active = false;
         }
     }
+    pub fn suspend(&mut self) -> io::Result<()> {
+        if self.active {
+            disable_raw_mode()?;
+            execute!(stdout(), LeaveAlternateScreen)?;
+            self.active = false;
+        }
+        Ok(())
+    }
+
+    pub fn resume(&mut self) -> io::Result<()> {
+        enable_raw_mode()?;
+        execute!(stdout(), EnterAlternateScreen)?;
+        self.active = true;
+        Ok(())
+    }
 }
 
 impl Drop for TerminalGuard {

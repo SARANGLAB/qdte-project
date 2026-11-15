@@ -277,6 +277,9 @@ impl Renderer {
             self.left_col = cursor_col + 1 - width;
         }
     }
+    pub fn invalidate(&mut self) {
+        self.cached_hash = 0;
+    }
 }
 
 // ---- pure helpers (tested) ------------------------------------------------
