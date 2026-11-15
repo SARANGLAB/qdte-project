@@ -11,6 +11,8 @@ enum Pending {
     D,
     G,
     Y,
+    Greater,
+    Less,
 }
 
 pub struct VimKeymap {
@@ -52,34 +54,7 @@ impl VimKeymap {
         use KeyCode::*;
         use KeyModifiers as M;
 
-        // Global shortcuts
-        match (key.code, key.modifiers) {
-            // Gunakan `_` untuk simbol/huruf besar agar kompatibel dengan WSL2
-            (Char(':'), _) => return Some(Command::EnterCommandPrompt),
-            (Char('/'), _) => return Some(Command::Search),
-            (Char('n'), _) => return Some(Command::SearchNext),
-            (Char('N'), _) => return Some(Command::SearchPrev),
-            
-            (Char('S'), m) if m.contains(M::CONTROL) => return Some(Command::SaveAs),
-            (Char('s'), m) if m.contains(M::CONTROL) && m.contains(M::SHIFT) => {
-                return Some(Command::SaveAs);
-            }
-            (F(2), M::NONE) => return Some(Command::SaveAs),
-            (Char('s'), M::CONTROL) => return Some(Command::Save),
-            (Char('o'), M::CONTROL) => return Some(Command::Open),
-            (Char('x'), M::CONTROL) | (Char('q'), M::CONTROL) | (Char('c'), M::CONTROL) => {
-                return Some(Command::Quit);
-            }
-            (Char('r'), M::CONTROL) => return Some(Command::Editor(Action::Redo)),
-            (Char('~'), _) => return Some(Command::ToggleCase),
-            (Esc, _) => {
-                self.pending = Pending::None;
-                return Some(Command::ClearSearch);
-            }
-            _ => {}
-        }
-
-        // Handle pending operator
+        // 1. Handle pending operator DULU (sebelum shortcut apa pun)
         match std::mem::take(&mut self.pending) {
             Pending::D => {
                 if key.code == Char('d') && key.modifiers == M::NONE {
@@ -99,9 +74,47 @@ impl VimKeymap {
                 }
                 return None;
             }
+            Pending::Greater => {
+                if key.code == Char('>') {
+                    return Some(Command::Indent);
+                }
+                return None;
+            }
+            Pending::Less => {
+                if key.code == Char('<') {
+                    return Some(Command::Unindent);
+                }
+                return None;
+            }
             Pending::None => {}
         }
 
+        // 2. Global shortcuts
+        match (key.code, key.modifiers) {
+            (Char(':'), _) => return Some(Command::EnterCommandPrompt),
+            (Char('/'), _) => return Some(Command::Search),
+            (Char('n'), _) => return Some(Command::SearchNext),
+            (Char('N'), _) => return Some(Command::SearchPrev),
+            
+            (Char('S'), m) if m.contains(M::CONTROL) => return Some(Command::SaveAs),
+            (Char('s'), m) if m.contains(M::CONTROL) && m.contains(M::SHIFT) => {
+                return Some(Command::SaveAs);
+            }
+            (F(2), M::NONE) => return Some(Command::SaveAs),
+            (Char('s'), M::CONTROL) => return Some(Command::Save),
+            (Char('o'), M::CONTROL) => return Some(Command::Open),
+            (Char('x'), M::CONTROL) | (Char('q'), M::CONTROL) | (Char('c'), M::CONTROL) => {
+                return Some(Command::Quit);
+            }
+            (Char('r'), M::CONTROL) => return Some(Command::Editor(Action::Redo)),
+            (Char('~'), _) => return Some(Command::ToggleCase),
+            (Esc, _) => {
+                return Some(Command::ClearSearch);
+            }
+            _ => {}
+        }
+
+        // 3. Normal mappings
         Some(match (key.code, key.modifiers) {
             (Char('u'), M::NONE) => Command::Editor(Action::Undo),
             (Char('h'), M::NONE) => Command::Editor(Action::MoveLeftLineClamped),
@@ -110,12 +123,19 @@ impl VimKeymap {
             (Char('l'), M::NONE) => Command::Editor(Action::MoveRightLineClamped),
             (Char('0'), M::NONE) => Command::Editor(Action::MoveLineStart),
             
-            // Karakter Shift/WSL2
             (Char('$'), _) => Command::Editor(Action::MoveLineEndBlock),
             (Char('G'), _) => Command::Editor(Action::MoveBufferEnd),
             
             (Char('g'), M::NONE) => {
                 self.pending = Pending::G;
+                return None;
+            }
+            (Char('>'), _) => {
+                self.pending = Pending::Greater;
+                return None;
+            }
+            (Char('<'), _) => {
+                self.pending = Pending::Less;
                 return None;
             }
             (Char('i'), M::NONE) => Command::SetMode(Mode::Insert),
@@ -240,6 +260,8 @@ impl VimKeymap {
                 Command::Quit
             }
             (Char('~'), _) => Command::ToggleVisualSelection,
+            (Char('>'), _) => Command::IndentVisual,
+            (Char('<'), _) => Command::UnindentVisual,
             _ => return None,
         })
     }

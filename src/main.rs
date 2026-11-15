@@ -520,5 +520,37 @@ fn dispatch_command(app: &mut App, cmd: Command, quit_armed: &mut bool) -> bool 
             *quit_armed = false;
             false
         }
+        Command::Indent => {
+            let _ = app.editor.apply(qdte::editor::Action::IndentLine);
+            *quit_armed = false;
+            false
+        }
+        Command::Unindent => {
+            let _ = app.editor.apply(qdte::editor::Action::UnindentLine);
+            *quit_armed = false;
+            false
+        }
+        Command::IndentVisual => {
+            if let Some((start, end, _)) = app.visual_range() {
+                let start_line = app.editor.buffer().char_to_line(start);
+                let end_line = app.editor.buffer().char_to_line(end.saturating_sub(1));
+                let _ = app.editor.apply(qdte::editor::Action::IndentRange { start_line, end_line });
+            }
+            app.mode = qdte::editor::Mode::Normal;
+            app.selection_anchor = None;
+            *quit_armed = false;
+            false
+        }
+        Command::UnindentVisual => {
+            if let Some((start, end, _)) = app.visual_range() {
+                let start_line = app.editor.buffer().char_to_line(start);
+                let end_line = app.editor.buffer().char_to_line(end.saturating_sub(1));
+                let _ = app.editor.apply(qdte::editor::Action::UnindentRange { start_line, end_line });
+            }
+            app.mode = qdte::editor::Mode::Normal;
+            app.selection_anchor = None;
+            *quit_armed = false;
+            false
+        }
     }
 }

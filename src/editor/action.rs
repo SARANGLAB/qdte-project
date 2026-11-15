@@ -43,6 +43,12 @@ pub enum Action {
     // Toggle Case
     ToggleCase,
     ToggleCaseRange { start: usize, end: usize },
+
+    // Indent
+    IndentLine,
+    UnindentLine,
+    IndentRange { start_line: usize, end_line: usize },
+    UnindentRange { start_line: usize, end_line: usize },
 }
 
 impl Action {
@@ -62,6 +68,10 @@ impl Action {
                 | Action::Redo
                 | Action::ToggleCase           
                 | Action::ToggleCaseRange { .. } 
+                | Action::IndentLine
+                | Action::UnindentLine
+                | Action::IndentRange { .. }
+                | Action::UnindentRange { .. }
         )
     }
 }

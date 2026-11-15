@@ -28,6 +28,10 @@ pub enum Command {
     OpenThemePicker,
     ToggleCase,
     ToggleVisualSelection,
+    Indent,
+    Unindent,
+    IndentVisual,
+    UnindentVisual,
 }
 
 pub trait Keymap {

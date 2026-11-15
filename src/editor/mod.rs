@@ -470,6 +470,119 @@ impl Editor {
                     });
                 }
             }
+            Action::IndentLine => {
+                let line = self.cursor.line(&self.buffer);
+                let start = self.buffer.line_to_char(line);
+                let indent = if self.expand_tab {
+                    " ".repeat(self.tab_width)
+                } else {
+                    "\t".to_string()
+                };
+                let cursor_before = self.cursor.char_idx();
+                self.buffer.insert_str(start, &indent)?;
+                self.cursor = Cursor::at(cursor_before + indent.chars().count());
+                self.history.record(Change::insert(
+                    start,
+                    indent,
+                    cursor_before,
+                    self.cursor.char_idx(),
+                    ChangeKind::Structural,
+                ));
+            }
+            Action::UnindentLine => {
+                let line = self.cursor.line(&self.buffer);
+                let start = self.buffer.line_to_char(line);
+                let line_text = self.buffer.line(line).unwrap_or_default();
+                
+                let mut remove_count = 0;
+                for c in line_text.chars().take(self.tab_width) {
+                    if c == ' ' {
+                        remove_count += 1;
+                    } else if c == '\t' {
+                        remove_count += 1;
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+
+                if remove_count > 0 {
+                    let cursor_before = self.cursor.char_idx();
+                    let removed = self.buffer.remove(start..start + remove_count)?;
+                    self.cursor = Cursor::at(cursor_before.saturating_sub(remove_count));
+                    self.history.record(Change::delete(
+                        start,
+                        removed,
+                        cursor_before,
+                        self.cursor.char_idx(),
+                    ));
+                }
+            }
+            Action::IndentRange { start_line, end_line } => {
+                let indent = if self.expand_tab {
+                    " ".repeat(self.tab_width)
+                } else {
+                    "\t".to_string()
+                };
+                let cursor_before = self.cursor.char_idx();
+                
+                // Lakukan dari bawah ke atas agar index tidak bergeser
+                for line in (start_line..=end_line).rev() {
+                    let start = self.buffer.line_to_char(line);
+                    self.buffer.insert_str(start, &indent)?;
+                }
+                
+                // Kembalikan kursor ke awal baris pertama yang di-indent
+                let new_start = self.buffer.line_to_char(start_line) + indent.chars().count();
+                self.cursor = Cursor::at(new_start);
+                
+                self.history.record(Change::insert(
+                    self.buffer.line_to_char(start_line),
+                    indent.repeat(end_line - start_line + 1),
+                    cursor_before,
+                    self.cursor.char_idx(),
+                    ChangeKind::Structural,
+                ));
+            }
+            Action::UnindentRange { start_line, end_line } => {
+                let cursor_before = self.cursor.char_idx();
+                let mut total_removed = String::new();
+                let first_line_start = self.buffer.line_to_char(start_line);
+
+                for line in (start_line..=end_line).rev() {
+                    let start = self.buffer.line_to_char(line);
+                    let line_text = self.buffer.line(line).unwrap_or_default();
+                    
+                    let mut remove_count = 0;
+                    for c in line_text.chars().take(self.tab_width) {
+                        if c == ' ' {
+                            remove_count += 1;
+                        } else if c == '\t' {
+                            remove_count += 1;
+                            break;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if remove_count > 0 {
+                        let removed = self.buffer.remove(start..start + remove_count)?;
+                        if line == start_line {
+                            total_removed = removed;
+                        }
+                    }
+                }
+
+                let new_start = self.buffer.line_to_char(start_line);
+                self.cursor = Cursor::at(new_start);
+                
+                self.history.record(Change::delete(
+                    first_line_start,
+                    total_removed, 
+                    cursor_before,
+                    self.cursor.char_idx(),
+                ));
+            }
         }
         if action.is_mutation() {
             *self.cached_hash.borrow_mut() = None;
