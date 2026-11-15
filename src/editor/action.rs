@@ -49,6 +49,12 @@ pub enum Action {
     UnindentLine,
     IndentRange { start_line: usize, end_line: usize },
     UnindentRange { start_line: usize, end_line: usize },
+    
+    // find / till motions
+    FindCharForward(char),
+    FindCharBackward(char),
+    TillCharForward(char),
+    TillCharBackward(char),
 }
 
 impl Action {

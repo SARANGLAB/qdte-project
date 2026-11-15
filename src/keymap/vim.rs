@@ -13,6 +13,10 @@ enum Pending {
     Y,
     Greater,
     Less,
+    F,
+    CapitalF,
+    T,
+    CapitalT,
 }
 
 pub struct VimKeymap {
@@ -86,6 +90,30 @@ impl VimKeymap {
                 }
                 return None;
             }
+            Pending::F => {
+                if let Char(c) = key.code {
+                    return Some(Command::Editor(Action::FindCharForward(c)));
+                }
+                return None;
+            }
+            Pending::CapitalF => {
+                if let Char(c) = key.code {
+                    return Some(Command::Editor(Action::FindCharBackward(c)));
+                }
+                return None;
+            }
+            Pending::T => {
+                if let Char(c) = key.code {
+                    return Some(Command::Editor(Action::TillCharForward(c)));
+                }
+                return None;
+            }
+            Pending::CapitalT => {
+                if let Char(c) = key.code {
+                    return Some(Command::Editor(Action::TillCharBackward(c)));
+                }
+                return None;
+            }
             Pending::None => {}
         }
 
@@ -110,6 +138,22 @@ impl VimKeymap {
             (Char('~'), _) => return Some(Command::ToggleCase),
             (Esc, _) => {
                 return Some(Command::ClearSearch);
+            }
+            (Char('f'), M::NONE) => {
+                self.pending = Pending::F;
+                return None;
+            }
+            (Char('F'), _) => {
+                self.pending = Pending::CapitalF;
+                return None;
+            }
+            (Char('t'), M::NONE) => {
+                self.pending = Pending::T;
+                return None;
+            }
+            (Char('T'), _) => {
+                self.pending = Pending::CapitalT;
+                return None;
             }
             _ => {}
         }

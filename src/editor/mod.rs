@@ -583,6 +583,72 @@ impl Editor {
                     self.cursor.char_idx(),
                 ));
             }
+            Action::FindCharForward(c) => {
+                let line_idx = self.cursor.line(&self.buffer);
+                let line_start = self.buffer.line_to_char(line_idx);
+                let line_text = self.buffer.line(line_idx).unwrap_or_default();
+                let current_col = self.cursor.char_idx() - line_start;
+
+                let chars: Vec<char> = line_text.chars().collect();
+                if current_col + 1 < chars.len() {
+                    for i in (current_col + 1)..chars.len() {
+                        if chars[i] == c {
+                            self.cursor = Cursor::at(line_start + i);
+                            break;
+                        }
+                    }
+                }
+            }
+            Action::FindCharBackward(c) => {
+                let line_idx = self.cursor.line(&self.buffer);
+                let line_start = self.buffer.line_to_char(line_idx);
+                let line_text = self.buffer.line(line_idx).unwrap_or_default();
+                let current_col = self.cursor.char_idx() - line_start;
+
+                let chars: Vec<char> = line_text.chars().collect();
+                if current_col > 0 {
+                    for i in (0..current_col).rev() {
+                        if chars[i] == c {
+                            self.cursor = Cursor::at(line_start + i);
+                            break;
+                        }
+                    }
+                }
+            }
+            Action::TillCharForward(c) => {
+                let line_idx = self.cursor.line(&self.buffer);
+                let line_start = self.buffer.line_to_char(line_idx);
+                let line_text = self.buffer.line(line_idx).unwrap_or_default();
+                let current_col = self.cursor.char_idx() - line_start;
+
+                let chars: Vec<char> = line_text.chars().collect();
+                if current_col + 1 < chars.len() {
+                    for i in (current_col + 1)..chars.len() {
+                        if chars[i] == c {
+                            // Berhenti satu karakter SEBELUM target
+                            self.cursor = Cursor::at(line_start + i - 1);
+                            break;
+                        }
+                    }
+                }
+            }
+            Action::TillCharBackward(c) => {
+                let line_idx = self.cursor.line(&self.buffer);
+                let line_start = self.buffer.line_to_char(line_idx);
+                let line_text = self.buffer.line(line_idx).unwrap_or_default();
+                let current_col = self.cursor.char_idx() - line_start;
+
+                let chars: Vec<char> = line_text.chars().collect();
+                if current_col > 0 {
+                    for i in (0..current_col).rev() {
+                        if chars[i] == c {
+                            // Berhenti satu karakter SETELAH target
+                            self.cursor = Cursor::at(line_start + i + 1);
+                            break;
+                        }
+                    }
+                }
+            }
         }
         if action.is_mutation() {
             *self.cached_hash.borrow_mut() = None;
