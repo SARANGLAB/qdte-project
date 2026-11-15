@@ -599,11 +599,26 @@ impl App {
                 }
             }
             "cd" => {
-                if let Some(path) = arg {
-                    if let Err(e) = std::env::set_current_dir(path) {
+                if let Some(arg_str) = arg {
+                    let mut path_str = arg_str.to_string();
+                    // Trik untuk Windows: jika user hanya mengetik "D:", ubah menjadi "D:\"
+                    #[cfg(target_os = "windows")]
+                    {
+                        if path_str.len() == 2 && path_str.ends_with(':') {
+                            path_str.push('\\');
+                        }
+                    }
+
+                    let path = PathBuf::from(&path_str);
+
+                    if !path.exists() {
+                        self.message = Some(format!("cd error: path does not exist: {}", path.display()));
+                    } else if !path.is_dir() {
+                        self.message = Some(format!("cd error: not a directory: {}", path.display()));
+                    } else if let Err(e) = std::env::set_current_dir(&path) {
                         self.message = Some(format!("cd error: {}", e));
                     } else {
-                        self.message = Some(format!("cd: {}", path));
+                        self.message = Some(format!("cd: {}", path.display()));
                     }
                 } else {
                     // Jika `:cd` tanpa argumen, kembali ke HOME
