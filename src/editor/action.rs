@@ -55,6 +55,8 @@ pub enum Action {
     FindCharBackward(char),
     TillCharForward(char),
     TillCharBackward(char),
+
+    InsertString(String)
 }
 
 impl Action {
@@ -78,6 +80,7 @@ impl Action {
                 | Action::UnindentLine
                 | Action::IndentRange { .. }
                 | Action::UnindentRange { .. }
+                | Action::InsertString(_)
         )
     }
 }

@@ -193,8 +193,20 @@ fn run(app: &mut App, vim: bool, config: &Config) -> std::io::Result<()> {
                 .arg(&cmd)
                 .status();
 
-            if let Err(e) = status {
-                let _ = execute!(out, Print(format!("\nFailed to execute: {}\n", e)));
+            // Tangkap Status Exit
+            match status {
+                Ok(exit_status) => {
+                    if exit_status.success() {
+                        app.message = Some("Command executed successfully".to_string());
+                    } else {
+                        let code = exit_status.code().unwrap_or(-1);
+                        app.message = Some(format!("Command exited with code: {}", code));
+                    }
+                }
+                Err(e) => {
+                    let _ = execute!(out, Print(format!("\nFailed to execute: {}\n", e)));
+                    app.message = Some(format!("Execution error: {}", e));
+                }
             }
 
             // 4. Tampilkan pesan untuk kembali
@@ -212,7 +224,6 @@ fn run(app: &mut App, vim: bool, config: &Config) -> std::io::Result<()> {
             // 7. Paksa render ulang editor pada iterasi berikutnya
             renderer.invalidate();
             
-            // Lanjut ke iterasi berikutnya tanpa merender ulang UI yang lama
             continue;
         }
         // ---------------------------------------------

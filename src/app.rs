@@ -534,6 +534,7 @@ impl App {
     }
 
     fn execute_command(&mut self, cmd: &str) {
+        // Tangani perintah shell (!) secara khusus di awal
         if let Some(shell_cmd) = cmd.strip_prefix('!') {
             let shell_cmd = shell_cmd.trim();
             if shell_cmd.is_empty() {
@@ -542,8 +543,37 @@ impl App {
                 self.pending_shell_command = Some(shell_cmd.to_string());
                 self.message = None;
             }
-            return; // Keluar dari fungsi karena sudah ditangani
+            return;
         }
+
+        // Tangani :r !<command> untuk menyisipkan output ke buffer
+        if let Some(read_arg) = cmd.strip_prefix("r !") {
+            let shell_cmd = read_arg.trim();
+            if shell_cmd.is_empty() {
+                self.message = Some("usage: :r !<command>".into());
+                return;
+            }
+
+            let output = if cfg!(target_os = "windows") {
+                std::process::Command::new("cmd").arg("/C").arg(shell_cmd).output()
+            } else {
+                std::process::Command::new("sh").arg("-c").arg(shell_cmd).output()
+            };
+
+            match output {
+                Ok(out) => {
+                    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                    if let Err(e) = self.apply_editor(Action::InsertString(stdout)) {
+                        self.message = Some(format!("insert error: {}", e));
+                    } else {
+                        self.message = Some(format!("inserted output of: {}", shell_cmd));
+                    }
+                }
+                Err(e) => self.message = Some(format!("execution error: {}", e)),
+            }
+            return;
+        }
+
         let mut parts = cmd.splitn(2, char::is_whitespace);
         let name = parts.next().unwrap_or("").trim();
         let arg = parts.next().map(|s| s.trim());
@@ -644,14 +674,6 @@ impl App {
                     } else {
                         self.message = Some("cd error: HOME not set".into());
                     }
-                }
-            }
-            "!" => {
-                if let Some(cmd) = arg {
-                    self.pending_shell_command = Some(cmd.to_string());
-                    self.message = None;
-                } else {
-                    self.message = Some("usage: :!<command>".into());
                 }
             }
             _ => {

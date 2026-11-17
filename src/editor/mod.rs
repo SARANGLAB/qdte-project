@@ -131,6 +131,7 @@ impl Editor {
 
     /// Apply an action. Mutates buffer and/or cursor as appropriate.
     pub fn apply(&mut self, action: Action) -> Result<(), EditorError> {
+        let is_mutation = action.is_mutation();
         match action {
             // ---- movement ----
             Action::MoveLeft => self.cursor.move_left(&self.buffer),
@@ -649,8 +650,38 @@ impl Editor {
                     }
                 }
             }
+            Action::InsertString(s) => {
+                let line_idx = self.cursor.line(&self.buffer);
+                let line_start = self.buffer.line_to_char(line_idx);
+                let line_text = self.buffer.line(line_idx).unwrap_or_default();
+                let line_end = line_start + line_text.chars().count();
+                let buffer_len = self.buffer.len_chars();
+
+                // Sisipkan di baris baru di bawahnya
+                let (insert_at, to_insert) = if line_end < buffer_len {
+                    (line_end + 1, s.clone())
+                } else {
+                    // Jika di akhir file, tambahkan newline dulu
+                    (line_end, format!("\n{}", s))
+                };
+
+                let cursor_before = self.cursor.char_idx();
+                self.buffer.insert_str(insert_at, &to_insert)?;
+                
+                // Pindahkan kursor ke baris baru tersebut
+                self.cursor = Cursor::at(insert_at + 1);
+                self.cursor.clamp(&self.buffer);
+                
+                self.history.record(Change::insert(
+                    insert_at,
+                    to_insert,
+                    cursor_before,
+                    self.cursor.char_idx(),
+                    ChangeKind::Structural,
+                ));
+            }
         }
-        if action.is_mutation() {
+        if is_mutation { 
             *self.cached_hash.borrow_mut() = None;
             let line = self.cursor.line(&self.buffer);
             self.dirty_from = match self.dirty_from {
